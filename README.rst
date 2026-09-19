@@ -1,9 +1,26 @@
 OBS Studio <https://obsproject.com>
 ===================================
 
-.. image:: https://github.com/obsproject/obs-studio/actions/workflows/push.yaml/badge.svg?branch=master
-   :alt: OBS Studio Build Status - GitHub Actions
-   :target: https://github.com/obsproject/obs-studio/actions/workflows/push.yaml?query=branch%3Amaster
+Capture Stutter Fix fork
+------------------------
+
+This fork targets intermittent capture cadence drops where the game and OBS
+FPS counters remain stable, OBS reports no rendering or encoding overload,
+but the preview and recording show duplicate frames or short 60-to-30/40 FPS
+stutters.  The first confirmed systems used GeForce RTX 5060, 5060 Ti, and
+5070 Ti GPUs.
+
+Download the Windows installer or portable build from `Releases
+<https://github.com/veelasama/obs-studio-capture-stutter-fix/releases>`_.
+Read `CAPTURE_STUTTER_FIX.md
+<https://github.com/veelasama/obs-studio-capture-stutter-fix/blob/master/CAPTURE_STUTTER_FIX.md>`_
+for the exact symptoms, design, test results, supported capture paths, build
+instructions, and known limits.  This is an independent experimental fork of
+OBS Studio 32.2.2 and is not an official OBS Project release.
+
+.. image:: https://github.com/veelasama/obs-studio-capture-stutter-fix/actions/workflows/capture-stutter-windows.yaml/badge.svg?branch=master
+   :alt: Capture Stutter Fix Windows build status
+   :target: https://github.com/veelasama/obs-studio-capture-stutter-fix/actions/workflows/capture-stutter-windows.yaml
 
 .. image:: https://badges.crowdin.net/obs-studio/localized.svg
    :alt: OBS Studio Translation Project Progress

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Test results and discussion
+    url: https://github.com/veelasama/obs-studio-capture-stutter-fix/discussions
+    about: Share results that are not yet a reproducible bug report.

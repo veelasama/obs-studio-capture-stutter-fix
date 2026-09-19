@@ -1,0 +1,106 @@
+name: Windows Capture Stutter Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+    tags:
+      - 'capture-stutter-fix-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.number || github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    name: Windows x64 installer and portable build
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Build OBS Studio
+        uses: ./.github/actions/build-obs
+        with:
+          target: x64
+          config: RelWithDebInfo
+
+      - name: Create OBS package
+        uses: ./.github/actions/package-obs
+        with:
+          target: x64
+          config: RelWithDebInfo
+
+      - name: Create installer, portable ZIP, and checksums
+        id: package
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $releaseVersion = if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $env:GITHUB_REF_NAME -replace '^capture-stutter-fix-', ''
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            "pr-$env:GITHUB_RUN_NUMBER"
+          } else {
+            "build-$env:GITHUB_RUN_NUMBER"
+          }
+          $productVersion = "32.2.2-Capture-Stutter-Fix-$releaseVersion"
+          $artifactBase = "OBS-Studio-$productVersion-Windows-x64"
+          $output = Join-Path $env:GITHUB_WORKSPACE 'release-output'
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'installer-stage'
+          New-Item -ItemType Directory -Force -Path $output, $stage | Out-Null
+
+          $package = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE 'build_x64') -Filter 'obs-studio-*-windows-x64.zip' -File | Select-Object -First 1
+          if (-not $package) { throw 'CPack Windows x64 ZIP was not produced.' }
+          Expand-Archive -LiteralPath $package.FullName -DestinationPath $stage
+
+          $obs = Join-Path $stage 'bin\64bit\obs64.exe'
+          if (-not (Test-Path -LiteralPath $obs)) {
+            $root = @(Get-ChildItem -LiteralPath $stage -Directory)
+            if ($root.Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $root[0].FullName 'bin\64bit\obs64.exe'))) {
+              Get-ChildItem -LiteralPath $root[0].FullName -Force | Move-Item -Destination $stage
+              Remove-Item -LiteralPath $root[0].FullName
+            }
+          }
+          if (-not (Test-Path -LiteralPath $obs)) { throw 'Packaged obs64.exe was not found.' }
+
+          $portable = Join-Path $output "$artifactBase-Portable.zip"
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $portable -CompressionLevel Optimal
+
+          choco install nsis --yes --no-progress
+          $installer = Join-Path $output "$artifactBase-Installer.exe"
+          & "$env:ProgramFiles(x86)\NSIS\makensis.exe" "/DSTAGE_DIR=$stage" "/DOUTPUT_FILE=$installer" "/DBUILD_VERSION=$productVersion" '.github\installer\capture-stutter-fix.nsi'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer)) { throw 'NSIS installer creation failed.' }
+
+          $checksums = Join-Path $output 'SHA256SUMS.txt'
+          Get-ChildItem -LiteralPath $output -File | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Add-Content -LiteralPath $checksums -Encoding utf8
+          }
+          "artifact_base=$artifactBase" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capture-stutter-windows-x64
+          compression-level: 0
+          path: release-output/*
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/capture-stutter-fix-v')
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          name: OBS Studio 32.2.2 Capture Stutter Fix ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: release-output/*

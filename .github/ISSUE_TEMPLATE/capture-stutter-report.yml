@@ -1,0 +1,70 @@
+name: Capture stutter report
+description: Report duplicate frames or intermittent preview/recording cadence drops
+title: "[Capture stutter] "
+labels: [capture-stutter]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for the symptom described by this fork. Attach an OBS log from the same session and give timestamps whenever possible.
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      placeholder: RTX 5070 Ti, NVIDIA 5xx.xx
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2, build number
+    validations:
+      required: true
+  - type: input
+    id: game_api
+    attributes:
+      label: Application and graphics API
+      placeholder: Satisfactory, Direct3D 12
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Capture source
+      options:
+        - Game Capture
+        - Display Capture (DXGI)
+        - Display Capture (WGC)
+        - Window Capture
+        - Browser Source
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: visible_in
+    attributes:
+      label: Where the stutter is visible
+      options:
+        - label: Preview
+        - label: Recording
+        - label: Stream
+        - label: The game itself
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Behavior and timestamps
+      description: Include target FPS, onset, duration, recurrence, and whether OBS reported rendering or encoder lag.
+    validations:
+      required: true
+  - type: textarea
+    id: toggles
+    attributes:
+      label: Queue isolation result
+      description: State what changed with OBS_READY_QUEUE=0 or OBS_DXGI_READY_QUEUE=0, if tested.
+  - type: textarea
+    id: log
+    attributes:
+      label: OBS log link or excerpt
+    validations:
+      required: true
