@@ -90,8 +90,11 @@ static inline bool gl_error(const char *func, const char *str)
 	return false;
 }
 
+static void rq_gl_free(void);
+
 static void gl_free(void)
 {
+	rq_gl_free();
 	capture_free();
 
 	if (data.using_shtex) {
@@ -399,6 +402,8 @@ static inline bool gl_init_fbo(void)
 	return !gl_error("gl_init_fbo", "failed to initialize FBO");
 }
 
+#include "ready_queue_gl_producer.h"
+
 static bool gl_shtex_init(HWND window)
 {
 	if (!gl_shtex_init_window()) {
@@ -416,6 +421,7 @@ static bool gl_shtex_init(HWND window)
 	if (!gl_init_fbo()) {
 		return false;
 	}
+	rq_gl_init();
 	if (!capture_init_shtex(&data.shtex_info, window, data.cx, data.cy, data.format, true,
 				(uintptr_t)data.handle)) {
 		return false;
@@ -579,7 +585,11 @@ static void gl_shtex_capture(void)
 	GLint last_fbo;
 	GLint last_tex;
 
-	obsglDXLockObjectsNV(data.gl_device, 1, &data.gl_dxobj);
+	GLuint target_texture;
+	HANDLE target_object;
+	if (!rq_gl_begin(&target_texture, &target_object))
+		return;
+	obsglDXLockObjectsNV(data.gl_device, 1, &target_object);
 
 	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &last_fbo);
 	if (gl_error("gl_shtex_capture", "failed to get last fbo")) {
@@ -591,12 +601,13 @@ static void gl_shtex_capture(void)
 		return;
 	}
 
-	gl_copy_backbuffer(data.texture);
+	gl_copy_backbuffer(target_texture);
 
 	glBindTexture(GL_TEXTURE_2D, last_tex);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, last_fbo);
 
-	obsglDXUnlockObjectsNV(data.gl_device, 1, &data.gl_dxobj);
+	obsglDXUnlockObjectsNV(data.gl_device, 1, &target_object);
+	if (rq_gl) rq_gl_end();
 
 	IDXGISwapChain_Present(data.dxgi_swap, 0, 0);
 }

@@ -1,4 +1,4 @@
-#include <d3d10.h>
+#include <d3d10_1.h>
 #include <dxgi.h>
 
 #include "dxgi-helpers.hpp"
@@ -48,8 +48,11 @@ struct d3d10_data {
 
 static struct d3d10_data data = {};
 
+static void rq_d3d10_producer_free();
+
 void d3d10_free(void)
 {
+	rq_d3d10_producer_free();
 	if (data.scale_tex) {
 		data.scale_tex->Release();
 	}
@@ -168,6 +171,8 @@ static bool create_d3d10_tex(uint32_t cx, uint32_t cy, ID3D10Texture2D **tex, HA
 	return true;
 }
 
+#include "ready_queue_d3d10_producer.hpp"
+
 static inline bool d3d10_init_format(IDXGISwapChain *swap, HWND &window)
 {
 	DXGI_SWAP_CHAIN_DESC desc;
@@ -248,6 +253,7 @@ static bool d3d10_shtex_init(HWND window)
 		hlog("d3d10_shtex_init: failed to create texture");
 		return false;
 	}
+	rq_d3d10_producer_init();
 	if (!capture_init_shtex(&data.shtex_info, window, data.cx, data.cy, data.format, false,
 				(uintptr_t)data.handle)) {
 		return false;
@@ -292,8 +298,10 @@ static inline void d3d10_copy_texture(ID3D10Resource *dst, ID3D10Resource *src)
 
 static inline void d3d10_shtex_capture(ID3D10Resource *backbuffer)
 {
-	if (data.texture) {
-		d3d10_copy_texture(data.texture, backbuffer);
+	ID3D10Texture2D *target = rq_d3d10_producer ? rq_d3d10_producer->begin() : data.texture;
+	if (target) {
+		d3d10_copy_texture(target, backbuffer);
+		if (rq_d3d10_producer) rq_d3d10_producer->end();
 	}
 }
 

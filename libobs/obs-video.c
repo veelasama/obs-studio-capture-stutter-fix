@@ -27,6 +27,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <avrt.h>
 #endif
 
 static uint64_t tick_sources(uint64_t cur_time, uint64_t last_time)
@@ -1162,6 +1163,11 @@ void *obs_graphics_thread(void *param)
 {
 #ifdef _WIN32
 	struct winrt_state winrt;
+	DWORD mmcss_task_index = 0;
+	HANDLE mmcss_handle = AvSetMmThreadCharacteristicsW(L"Playback", &mmcss_task_index);
+	if (mmcss_handle)
+		AvSetMmThreadPriority(mmcss_handle, AVRT_PRIORITY_HIGH);
+
 	init_winrt_state(&winrt);
 #endif // #ifdef _WIN32
 
@@ -1196,6 +1202,8 @@ void *obs_graphics_thread(void *param)
 
 #ifdef _WIN32
 	uninit_winrt_state(&winrt);
+	if (mmcss_handle)
+		AvRevertMmThreadCharacteristics(mmcss_handle);
 #endif
 
 	UNUSED_PARAMETER(param);

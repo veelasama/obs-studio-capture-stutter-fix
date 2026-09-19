@@ -1,14 +1,7 @@
 name: Push
 run-name: ${{ github.ref_name }} push run 🚀
 on:
-  push:
-    paths-ignore:
-      - '**.md'
-    branches:
-      - master
-      - 'release/**'
-    tags:
-      - '*'
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
