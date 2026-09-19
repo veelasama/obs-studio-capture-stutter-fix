@@ -26,9 +26,10 @@ InstallDirRegKey HKLM "${PRODUCT_REGKEY}" "InstallLocation"
 ShowInstDetails show
 ShowUninstDetails show
 
-VIProductVersion "32.2.2.1"
+VIProductVersion "32.2.2.2"
 VIAddVersionKey /LANG=1033 "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${BUILD_VERSION}"
+VIAddVersionKey /LANG=1033 "FileVersion" "${BUILD_VERSION}"
 VIAddVersionKey /LANG=1033 "FileDescription" "OBS Studio capture frame pacing experimental fork"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "OBS contributors; GPL-2.0-or-later"
 
@@ -50,16 +51,21 @@ Section "Install" SEC_MAIN
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\OBS Studio Capture Stutter Fix"
-  CreateShortcut "$SMPROGRAMS\OBS Studio Capture Stutter Fix\OBS Studio Capture Stutter Fix.lnk" "$INSTDIR\bin\64bit\obs64.exe" "" "$INSTDIR\bin\64bit\obs64.exe" 0 SW_SHOWNORMAL "" "$INSTDIR\bin\64bit"
+
+  ; OBS resolves libobs effects and plug-in data relative to bin\64bit.
+  SetOutPath "$INSTDIR\bin\64bit"
+  CreateShortcut "$SMPROGRAMS\OBS Studio Capture Stutter Fix\OBS Studio Capture Stutter Fix.lnk" "$INSTDIR\bin\64bit\obs64.exe" "" "$INSTDIR\bin\64bit\obs64.exe"
+  CreateShortcut "$DESKTOP\OBS Studio Capture Stutter Fix.lnk" "$INSTDIR\bin\64bit\obs64.exe" "" "$INSTDIR\bin\64bit\obs64.exe"
+
+  SetOutPath "$INSTDIR"
   CreateShortcut "$SMPROGRAMS\OBS Studio Capture Stutter Fix\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$DESKTOP\OBS Studio Capture Stutter Fix.lnk" "$INSTDIR\bin\64bit\obs64.exe" "" "$INSTDIR\bin\64bit\obs64.exe" 0 SW_SHOWNORMAL "" "$INSTDIR\bin\64bit"
 
   WriteRegStr HKLM "${PRODUCT_REGKEY}" "DisplayName" "${PRODUCT_NAME}"
   WriteRegStr HKLM "${PRODUCT_REGKEY}" "DisplayVersion" "${BUILD_VERSION}"
   WriteRegStr HKLM "${PRODUCT_REGKEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteRegStr HKLM "${PRODUCT_REGKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "${PRODUCT_REGKEY}" "DisplayIcon" "$INSTDIR\bin\64bit\obs64.exe"
-  WriteRegStr HKLM "${PRODUCT_REGKEY}" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
+  WriteRegStr HKLM "${PRODUCT_REGKEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKLM "${PRODUCT_REGKEY}" "NoModify" 1
   WriteRegDWORD HKLM "${PRODUCT_REGKEY}" "NoRepair" 1
 SectionEnd

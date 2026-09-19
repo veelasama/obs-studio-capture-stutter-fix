@@ -139,7 +139,7 @@ To compile locally, use 64-bit Windows with Git, PowerShell 7.2 or later,
 Windows 11 SDK 10.0.26100.  Clone the release tag together with every
 submodule, then run the same build script used by CI from PowerShell 7::
 
-   git clone --recurse-submodules --branch 32.2.2-capture-stutter-fix-v1.0.0 https://github.com/veelasama/obs-studio-capture-stutter-fix.git
+   git clone --recurse-submodules --branch 32.2.2-capture-stutter-fix-v1.0.1 https://github.com/veelasama/obs-studio-capture-stutter-fix.git
    cd obs-studio-capture-stutter-fix
    $env:CI = '1'
    pwsh -File .\.github\scripts\Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
