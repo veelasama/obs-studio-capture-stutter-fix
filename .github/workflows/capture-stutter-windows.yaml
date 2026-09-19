@@ -73,11 +73,61 @@ jobs:
           }
           if (-not (Test-Path -LiteralPath $obs)) { throw 'Packaged obs64.exe was not found.' }
 
+          $requiredResources = @(
+            (Join-Path $stage 'data\obs-studio\themes\System.obt'),
+            (Join-Path $stage 'data\obs-studio\themes\Yami.obt'),
+            (Join-Path $stage 'data\obs-studio\themes\Yami_Default.ovt'),
+            (Join-Path $stage 'data\libobs\default.effect'),
+            (Join-Path $stage 'data\libobs\opaque.effect'),
+            (Join-Path $stage 'data\libobs\format_conversion.effect')
+          )
+          foreach ($resource in $requiredResources) {
+            if (-not (Test-Path -LiteralPath $resource -PathType Leaf)) {
+              throw "Required packaged OBS resource is missing: $resource"
+            }
+          }
+          $themeLookup = Select-String -LiteralPath 'frontend\OBSApp_Themes.cpp' -SimpleMatch 'GetDataFilePath("themes", themeDir);'
+          if (-not $themeLookup) {
+            throw 'Windows theme discovery must not pass a trailing slash to os_file_exists.'
+          }
+
           choco install nsis --yes --no-progress
           $installer = Join-Path $output "$artifactBase-Installer.exe"
           $makensis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
           & $makensis "/DSTAGE_DIR=$stage" "/DOUTPUT_FILE=$installer" "/DBUILD_VERSION=$productVersion" '.github\installer\capture-stutter-fix.nsi'
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer)) { throw 'NSIS installer creation failed.' }
+
+          # Install silently into an isolated directory and inspect the real
+          # shortcut produced by NSIS. This catches incorrect OBS working
+          # directories without trying to launch a GUI on a headless runner.
+          $smokeInstall = Join-Path $env:RUNNER_TEMP 'obs-capture-stutter-installer-smoke'
+          if (-not $smokeInstall.StartsWith($env:RUNNER_TEMP, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Installer smoke directory escaped RUNNER_TEMP.'
+          }
+          $desktopShortcut = Join-Path $env:USERPROFILE 'Desktop\OBS Studio Capture Stutter Fix.lnk'
+          try {
+            $installProcess = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$smokeInstall" -WindowStyle Hidden -Wait -PassThru
+            if ($installProcess.ExitCode -ne 0) { throw "Silent installer smoke test failed with code $($installProcess.ExitCode)." }
+            $installedObs = Join-Path $smokeInstall 'bin\64bit\obs64.exe'
+            if (-not (Test-Path -LiteralPath $installedObs -PathType Leaf)) { throw 'Installed obs64.exe was not found.' }
+            if (-not (Test-Path -LiteralPath (Join-Path $smokeInstall 'data\libobs\default.effect') -PathType Leaf)) {
+              throw 'Installed libobs resources were not found.'
+            }
+            if (-not (Test-Path -LiteralPath $desktopShortcut -PathType Leaf)) { throw 'Installer desktop shortcut was not created.' }
+            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = $shell.CreateShortcut($desktopShortcut)
+            $expectedWorkingDirectory = Join-Path $smokeInstall 'bin\64bit'
+            if ($shortcut.WorkingDirectory -ne $expectedWorkingDirectory) {
+              throw "Installer shortcut working directory is '$($shortcut.WorkingDirectory)', expected '$expectedWorkingDirectory'."
+            }
+          } finally {
+            $uninstaller = Join-Path $smokeInstall 'Uninstall.exe'
+            if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+              Start-Process -FilePath $uninstaller -ArgumentList '/S' -WindowStyle Hidden -Wait
+            }
+            Remove-Item -LiteralPath $desktopShortcut -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $smokeInstall -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
           $checksums = Join-Path $output 'SHA256SUMS.txt'
           Get-ChildItem -LiteralPath $output -File | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object Name | ForEach-Object {

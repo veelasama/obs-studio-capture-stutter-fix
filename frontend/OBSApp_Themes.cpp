@@ -466,7 +466,7 @@ void OBSApp::FindThemes()
 
 	{
 		string themeDir;
-		GetDataFilePath("themes/", themeDir);
+		GetDataFilePath("themes", themeDir);
 		QDirIterator it(QString::fromStdString(themeDir), filters, QDir::Files);
 		while (it.hasNext()) {
 			auto theme = ParseThemeMeta(it.next());
