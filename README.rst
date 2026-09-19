@@ -10,7 +10,7 @@ but the preview and recording show duplicate frames or short 60-to-30/40 FPS
 stutters.  The first confirmed systems used GeForce RTX 5060, 5060 Ti, and
 5070 Ti GPUs.
 
-Download the Windows installer or portable build from `Releases
+Download the Windows installer from `Releases
 <https://github.com/veelasama/obs-studio-capture-stutter-fix/releases>`_.
 Read `CAPTURE_STUTTER_FIX.md
 <https://github.com/veelasama/obs-studio-capture-stutter-fix/blob/master/CAPTURE_STUTTER_FIX.md>`_

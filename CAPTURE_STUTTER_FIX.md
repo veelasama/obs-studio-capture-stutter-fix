@@ -96,7 +96,7 @@ The release tag and GitHub Actions workflow are the reproducible path:
 
 1. Fork or clone this repository with submodules.
 2. Open **Actions → Windows Capture Stutter Build → Run workflow**.
-3. Download the `capture-stutter-windows-x64` artifact.
+3. Download the installer from the `capture-stutter-windows-x64` artifact.
 
 For a local Windows build with the OBS build prerequisites installed:
 
@@ -105,8 +105,7 @@ git submodule update --init --recursive
 pwsh .github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
 ```
 
-The workflow then packages the CPack output into a portable ZIP and a small
-NSIS installer. Its source is in
+The workflow then packages the CPack output into an NSIS installer. Its source is in
 `.github/installer/capture-stutter-fix.nsi`.
 
 ## Reporting results
