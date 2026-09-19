@@ -17,5 +17,6 @@ unknown-publisher warning. Verify the installer using `SHA256SUMS.txt`.
 
 Version 1.0.1 fixes Windows theme discovery in the fully rebuilt frontend. The
 installer shortcuts now use the working directory required for OBS to find its
-libobs shaders and plug-in data. The release workflow starts the packaged OBS
-executable and requires it to complete startup before publication.
+libobs shaders and plug-in data. Before publication, the release workflow
+performs a clean silent install, verifies the installed resources, and checks
+the actual Windows shortcut working directory.

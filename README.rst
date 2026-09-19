@@ -6,7 +6,7 @@ This is an independent Windows fork of `OBS Studio 32.2.2
 for a narrow but very recognizable capture problem that ordinary performance
 advice did not explain.  It is not an official OBS Project release.
 
-.. image:: https://github.com/veelasama/obs-studio-capture-stutter-fix/actions/workflows/capture-stutter-windows.yaml/badge.svg?branch=master
+.. image:: https://github.com/veelasama/obs-studio-capture-stutter-fix/actions/workflows/capture-stutter-windows.yaml/badge.svg
    :alt: Capture Stutter Fix Windows build status
    :target: https://github.com/veelasama/obs-studio-capture-stutter-fix/actions/workflows/capture-stutter-windows.yaml
 
