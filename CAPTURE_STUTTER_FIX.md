@@ -108,19 +108,12 @@ pwsh .github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
 The workflow then packages the CPack output into an NSIS installer. Its source is in
 `.github/installer/capture-stutter-fix.nsi`.
 
-## Reporting results
+## Feedback
 
-Use GitHub Discussions for general test results and the capture-stutter issue
-form for reproducible regressions. Include:
-
-- GPU and driver version
-- Windows build
-- game and graphics API
-- capture source and OBS output FPS
-- whether the preview, recording, or both stuttered
-- the approximate timestamps
-- an OBS log from the same session
-- whether disabling either queue changes the result
+The [feedback Discussion](https://github.com/veelasama/obs-studio-capture-stutter-fix/discussions/2)
+only asks whether the build helped or did not help. Detailed logs and bug
+reports are not required; this fork is not intended to become a separately
+supported OBS distribution.
 
 This repository is an independent experimental fork. For unrelated OBS bugs,
 use the official OBS Project support channels.

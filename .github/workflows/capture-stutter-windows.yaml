@@ -75,7 +75,8 @@ jobs:
 
           choco install nsis --yes --no-progress
           $installer = Join-Path $output "$artifactBase-Installer.exe"
-          & "$env:ProgramFiles(x86)\NSIS\makensis.exe" "/DSTAGE_DIR=$stage" "/DOUTPUT_FILE=$installer" "/DBUILD_VERSION=$productVersion" '.github\installer\capture-stutter-fix.nsi'
+          $makensis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          & $makensis "/DSTAGE_DIR=$stage" "/DOUTPUT_FILE=$installer" "/DBUILD_VERSION=$productVersion" '.github\installer\capture-stutter-fix.nsi'
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer)) { throw 'NSIS installer creation failed.' }
 
           $checksums = Join-Path $output 'SHA256SUMS.txt'
