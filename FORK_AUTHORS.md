@@ -11,8 +11,7 @@ builds, and maintains this fork and its releases.
 
 The fork-specific implementation, analysis tooling, documentation, CI
 packaging, and release preparation were developed collaboratively with OpenAI
-Codex. Codex does not have a personal GitHub account, so no fictional account
-is attributed here.
+Codex.
 
 All fork-specific source changes are distributed under GPL-2.0-or-later, the
 same license terms used by OBS Studio. The full license text is in `COPYING`.

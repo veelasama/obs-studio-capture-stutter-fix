@@ -122,83 +122,40 @@ The `feedback Discussion
 only asks whether the installer helped with the recognizable symptom.  A short
 answer is enough; logs and a bug-report template are not required.
 
+Build it yourself
+-----------------
+
+The release is built from the public source in this repository.  The easiest
+way to reproduce the exact Windows installer is to fork the repository, enable
+GitHub Actions, open **Actions → Windows Capture Stutter Build**, and run the
+workflow on the release tag.  The workflow compiles OBS and both Game Capture
+hooks from source, packages the result, creates the NSIS installer, calculates
+its SHA-256 hash, and uploads both files.  The complete recipe is visible in
+``.github/workflows/capture-stutter-windows.yaml`` and the installer definition
+is in ``.github/installer/capture-stutter-fix.nsi``.
+
+To compile locally, use 64-bit Windows with Git, PowerShell 7.2 or later,
+``winget``, and Visual Studio 2026 with Desktop development with C++ and the
+Windows 11 SDK 10.0.26100.  Clone the release tag together with every
+submodule, then run the same build script used by CI from PowerShell 7::
+
+   git clone --recurse-submodules --branch 32.2.2-capture-stutter-fix-v1.0.0 https://github.com/veelasama/obs-studio-capture-stutter-fix.git
+   cd obs-studio-capture-stutter-fix
+   $env:CI = '1'
+   pwsh -File .\.github\scripts\Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+
+The script downloads the pinned OBS dependency bundles whose hashes are stored
+in ``CMakePresets.json``.  The installed build is written to
+``build_x64\install``.  To create the intermediate OBS package as well, run::
+
+   pwsh -File .\.github\scripts\Package-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+
+No private source, private dependency, or signing key is needed to reproduce
+the executable code.  Release installers are currently unsigned, so a locally
+built executable will also avoid any false impression that the fork carries an
+OBS Project or commercial code-signing identity.
+
 Fork credits are listed in `FORK_AUTHORS.md
 <https://github.com/veelasama/obs-studio-capture-stutter-fix/blob/master/FORK_AUTHORS.md>`_.
 OBS Studio and its upstream history remain credited to the OBS Project
 contributors.  All source changes in this fork remain under GPL-2.0-or-later.
-
-Upstream OBS Studio
--------------------
-
-.. image:: https://badges.crowdin.net/obs-studio/localized.svg
-   :alt: OBS Studio Translation Project Progress
-   :target: https://crowdin.com/project/obs-studio
-
-.. image:: https://img.shields.io/discord/348973006581923840.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2
-   :alt: OBS Studio Discord Server
-   :target: https://obsproject.com/discord
-
-What is OBS Studio?
--------------------
-
-OBS Studio is software designed for capturing, compositing, encoding,
-recording, and streaming video content, efficiently.
-
-It's distributed under the GNU General Public License v2 (or any later
-version) - see the accompanying COPYING file for more details.
-
-Quick Links
------------
-
-- Website: https://obsproject.com
-
-- Help/Documentation/Guides: https://github.com/obsproject/obs-studio/wiki
-
-- Forums: https://obsproject.com/forum/
-
-- Build Instructions: https://github.com/obsproject/obs-studio/wiki/Install-Instructions
-
-- Developer/API Documentation: https://obsproject.com/docs
-
-- Donating/backing/sponsoring: https://obsproject.com/contribute
-
-- Bug Tracker: https://github.com/obsproject/obs-studio/issues
-
-Contributing
-------------
-
-- If you would like to help fund or sponsor the project, you can do so
-  via `Patreon <https://www.patreon.com/obsproject>`_, `OpenCollective
-  <https://opencollective.com/obsproject>`_, or `PayPal
-  <https://www.paypal.me/obsproject>`_.  See our `contribute page
-  <https://obsproject.com/contribute>`_ for more information.
-
-- If you wish to contribute code to the project, please make sure to
-  read the coding and commit guidelines:
-  https://github.com/obsproject/obs-studio/blob/master/CONTRIBUTING.md
-  
-- Code for the project follows the code style guidelines, located
-  here: https://github.com/obsproject/obs-studio/blob/master/CODESTYLE.md
-
-- Developer/API documentation can be found here:
-  https://obsproject.com/docs
-
-- If you wish to contribute translations, do not submit pull requests.
-  Instead, please use Crowdin.  For more information read this page:
-  https://obsproject.com/wiki/How-To-Contribute-Translations-For-OBS
-
-- Contributors to OBS Studio and related repositories are expected to
-  follow our Code of Conduct, which can be read here:
-  https://github.com/obsproject/obs-studio/blob/master/COC.rst
-
-- Other ways to contribute are by helping people out with support on
-  our forums or in our community chat.  Please limit support to topics
-  you fully understand -- bad advice is worse than no advice.  When it
-  comes to something that you don't fully know or understand, please
-  defer to the official help or official channels.
-
-
-SAST Tools
-----------
-
-`PVS-Studio <https://pvs-studio.com/pvs-studio/?utm_source=website&utm_medium=github&utm_campaign=open_source>`_ - static analyzer for C, C++, C#, and Java code.
