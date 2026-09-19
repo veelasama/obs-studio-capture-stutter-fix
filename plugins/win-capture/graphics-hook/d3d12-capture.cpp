@@ -48,8 +48,11 @@ extern ID3D12CommandQueue *dxgi_possible_swap_queues[8];
 extern size_t dxgi_possible_swap_queue_count;
 extern bool dxgi_present_attempted;
 
+static void rq_d3d12_producer_free();
+
 void d3d12_free(void)
 {
+	rq_d3d12_producer_free();
 	if (data.copy_tex) {
 		data.copy_tex->Release();
 	}
@@ -114,6 +117,8 @@ static bool create_d3d12_tex(UINT count)
 
 	return true;
 }
+
+#include "ready_queue_d3d12_producer.hpp"
 
 static bool d3d12_init_11on12(ID3D12Device *device)
 {
@@ -189,6 +194,7 @@ static bool d3d12_shtex_init(ID3D12Device *device, HWND window, UINT count)
 	if (!create_d3d12_tex(count)) {
 		return false;
 	}
+	rq_d3d12_producer_init();
 	if (!capture_init_shtex(&data.shtex_info, window, data.cx, data.cy, data.format, false,
 				(uintptr_t)data.handle)) {
 		return false;
@@ -299,10 +305,15 @@ static inline void d3d12_shtex_capture(IDXGISwapChain *swap)
 		if (SUCCEEDED(data.device11on12->CreateWrappedResource(
 			    backbuffer12, &rf11, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_PRESENT,
 			    IID_PPV_ARGS(&backbuffer)))) {
-			data.device11on12->AcquireWrappedResources(&backbuffer, 1);
-			d3d12_copy_texture(data.copy_tex, backbuffer);
-			data.device11on12->ReleaseWrappedResources(&backbuffer, 1);
-			data.context11->Flush();
+			ID3D11Texture2D *target = rq_d3d12_producer ? rq_d3d12_producer->begin() : data.copy_tex;
+			if (target) {
+				data.device11on12->AcquireWrappedResources(&backbuffer, 1);
+				d3d12_copy_texture(target, backbuffer);
+				data.device11on12->ReleaseWrappedResources(&backbuffer, 1);
+				if (rq_d3d12_producer)
+					rq_d3d12_producer->end(0);
+				data.context11->Flush();
+			}
 
 			if (!dxgi_1_4) {
 				if (++data.cur_backbuffer >= data.backbuffer_count) {

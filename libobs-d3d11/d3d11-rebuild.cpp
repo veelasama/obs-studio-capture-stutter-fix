@@ -415,8 +415,10 @@ const static D3D_FEATURE_LEVEL featureLevels[] = {
 	D3D_FEATURE_LEVEL_10_0,
 };
 
+extern void rq_consumer_device_lost(gs_device_t *device);
 void gs_device::RebuildDevice()
 try {
+	rq_consumer_device_lost(this);
 	ID3D11Device *dev = nullptr;
 	HRESULT hr;
 

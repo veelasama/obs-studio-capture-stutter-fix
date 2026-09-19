@@ -29,6 +29,8 @@
 #include "d3d11-subsystem.hpp"
 #include <shellscalingapi.h>
 #include <d3dkmthk.h>
+#include "backend_sdk_compat.hpp"
+#include "ready_queue_consumer.hpp"
 
 struct UnsupportedHWError : HRError {
 	inline UnsupportedHWError(const char *str, HRESULT hr) : HRError(str, hr) {}
@@ -228,6 +230,22 @@ void gs_swap_chain::Init()
 	zs.format = initData.zsformat;
 	zs.dxgiFormat = ConvertGSZStencilFormat(initData.zsformat);
 	InitZStencilBuffer(initData.cx, initData.cy);
+
+	/* Init is shared by initial creation and device-loss rebuild. */
+	if (swapDesc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) {
+		ComQIPtr<IDXGISwapChain2> swap2 = swap;
+		if (!swap2)
+			throw HRError("Failed to query IDXGISwapChain2", E_NOINTERFACE);
+
+		/* Leave room for preview presentation between fixed video ticks. */
+		const HRESULT hr = swap2->SetMaximumFrameLatency(2);
+		if (FAILED(hr))
+			blog(LOG_WARNING, "%s: SetMaximumFrameLatency(2) failed (%08lX)", __FUNCTION__, hr);
+
+		hWaitable = swap2->GetFrameLatencyWaitableObject();
+		if (hWaitable == NULL)
+			throw HRError("Failed to GetFrameLatencyWaitableObject", E_FAIL);
+	}
 }
 
 gs_swap_chain::gs_swap_chain(gs_device *device, const gs_init_data *data)
@@ -255,14 +273,6 @@ gs_swap_chain::gs_swap_chain(gs_device *device, const gs_init_data *data)
 
 	/* Ignore Alt+Enter */
 	device->factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
-
-	if (flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) {
-		ComPtr<IDXGISwapChain2> swap2 = ComQIPtr<IDXGISwapChain2>(swap);
-		hWaitable = swap2->GetFrameLatencyWaitableObject();
-		if (hWaitable == NULL) {
-			throw HRError("Failed to GetFrameLatencyWaitableObject", hr);
-		}
-	}
 
 	Init();
 }
@@ -1463,6 +1473,7 @@ int device_create(gs_device_t **p_device, uint32_t adapter)
 
 void device_destroy(gs_device_t *device)
 {
+	rq_consumer_stop(device);
 	delete device;
 }
 
@@ -2258,6 +2269,7 @@ extern "C" void reset_duplicators(void);
 
 void device_begin_frame(gs_device_t *device)
 {
+	rq_consumer_frame(device);
 	/* does nothing in D3D11 */
 	UNUSED_PARAMETER(device);
 
@@ -2711,6 +2723,7 @@ void gs_swapchain_destroy(gs_swapchain_t *swapchain)
 
 void gs_texture_destroy(gs_texture_t *tex)
 {
+	rq_consumer_remove(tex);
 	delete tex;
 }
 
@@ -3188,6 +3201,7 @@ extern "C" EXPORT gs_texture_t *device_texture_open_shared(gs_device_t *device, 
 	gs_texture *texture = nullptr;
 	try {
 		texture = new gs_texture_2d(device, handle);
+		texture = rq_consumer_open(device, handle, static_cast<gs_texture_2d*>(texture));
 	} catch (const HRError &error) {
 		blog(LOG_ERROR, "gs_texture_open_shared (D3D11): %s (%08lX)", error.str, error.hr);
 		LogD3D11ErrorDetails(error, device);
