@@ -12,6 +12,8 @@
 #include <d3d11_4.h>
 #include <dxgi1_6.h>
 
+#include "ready_queue_lowlatency.hpp"
+
 static constexpr unsigned RQ_DXGI_SLOT_COUNT = 8;
 static constexpr unsigned RQ_DXGI_PRIME_COUNT = 3;
 
@@ -77,20 +79,26 @@ struct RQDXGIAsyncQueue {
 	uint64_t acquire_timeouts = 0;
 	uint64_t pointer_only_skips = 0;
 	bool primed = false;
+	bool lowlatency = true; // OBS_READY_QUEUE_POLICY=bounded restores the depth-bounded FIFO.
+	RQLowLatency ll;
 	bool selected_this_frame = false;
 	bool logged_attach = false;
 
 	explicit RQDXGIAsyncQueue(gs_duplicator *d) : owner(d)
 	{
 		QueryPerformanceFrequency(&frequency);
+		wchar_t policy[16] = {};
+		GetEnvironmentVariableW(L"OBS_READY_QUEUE_POLICY", policy, 16);
+		lowlatency = wcscmp(policy, L"bounded") != 0 && wcscmp(policy, L"latest") != 0;
+		ll.init(frequency.QuadPart);
 	}
 
 	~RQDXGIAsyncQueue()
 	{
 		stop();
 		blog(LOG_INFO,
-		     "[dxgi-ready-queue] stop selections=%llu repeats=%llu producer_drops=%llu consumer_drops=%llu timeouts=%llu pointer_only=%llu",
-		     selections, repeats, producer_drops, consumer_drops, acquire_timeouts, pointer_only_skips);
+		     "[dxgi-ready-queue] stop selections=%llu repeats=%llu producer_drops=%llu consumer_drops=%llu timeouts=%llu pointer_only=%llu latency_sheds=%llu",
+		     selections, repeats, producer_drops, consumer_drops, acquire_timeouts, pointer_only_skips, ll.sheds);
 	}
 
 	static int64_t clock_now()
@@ -389,7 +397,8 @@ struct RQDXGIAsyncQueue {
 		attached.store(true, std::memory_order_release);
 		if (!logged_attach) {
 			blog(LOG_INFO,
-			     "[dxgi-ready-queue] asynchronous Desktop Duplication attached; 8 shared textures; bounded depth=2");
+			     "[dxgi-ready-queue] asynchronous Desktop Duplication attached; 8 shared textures; policy=%s",
+			     lowlatency ? "lowlatency" : "bounded");
 			logged_attach = true;
 		}
 		return true;
@@ -448,6 +457,34 @@ struct RQDXGIAsyncQueue {
 			return slots[a].sequence.load(std::memory_order_relaxed) <
 			       slots[b].sequence.load(std::memory_order_relaxed);
 		});
+
+		if (lowlatency) {
+			const int64_t now = clock_now();
+			ll.begin_tick(now);
+			for (auto &slot : slots)
+				if (slot.state.load(std::memory_order_acquire) == RQDXGISlotState::Published &&
+				    slot.sequence.load(std::memory_order_relaxed) > completed)
+					ll.observe_pending(now, slot.submitted.load(std::memory_order_relaxed));
+			uint64_t seq[RQ_DXGI_SLOT_COUNT];
+			int64_t submitted[RQ_DXGI_SLOT_COUNT];
+			for (unsigned i = 0; i < count; ++i) {
+				seq[i] = slots[ready[i]].sequence.load(std::memory_order_relaxed);
+				submitted[i] = slots[ready[i]].submitted.load(std::memory_order_relaxed);
+			}
+			const int chosen = ll.select(seq, submitted, count, RQ_DXGI_SLOT_COUNT, now);
+			if (chosen < 0) {
+				++repeats;
+				return true;
+			}
+			for (int i = 0; i < chosen; ++i) {
+				RQDXGISlotState expected = RQDXGISlotState::Published;
+				if (slots[ready[i]].state.compare_exchange_strong(expected, RQDXGISlotState::Free))
+					++consumer_drops;
+			}
+			ready[0] = ready[chosen];
+			count = 1;
+			primed = true;
+		}
 
 		if (!primed) {
 			const int64_t elapsed = clock_now() - configured_at.load();

@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include "ready_queue_protocol.hpp"
+#include "ready_queue_lowlatency.hpp"
 
 #ifdef RQ_LIFECYCLE_TEST
 static uint64_t rq_test_threshold(const wchar_t *name)
@@ -42,7 +43,8 @@ struct RQConsumer {
     RQShared *shared = nullptr;
     uint64_t releases[RQ_COUNT] = {}, serial = 0, selected = 0, repeats = 0, drops = 0;
     int64_t started = 0;
-    bool attached = false, failed = false, primed = false, latest = false;
+    bool attached = false, failed = false, primed = false, latest = false, lowlatency = false;
+    RQLowLatency ll;
     bool mapping_found = false;
     bool fallback_error_reported = false, fallback_clear_attempted = false;
     bool clear_after_rebuild = false, handoff_ready = false;
@@ -79,7 +81,8 @@ struct RQConsumer {
             UnmapViewOfFile(shared);
         if (mapping)
             CloseHandle(mapping);
-        blog(LOG_INFO, "[ready-queue] consumer stop selections=%llu repeats=%llu age_drops=%llu", serial, repeats, drops);
+        blog(LOG_INFO, "[ready-queue] consumer stop selections=%llu repeats=%llu age_drops=%llu latency_sheds=%llu",
+             serial, repeats, drops, ll.sheds);
         // legacy is destroyed here; output is still owned by the API caller.
     }
 
@@ -340,8 +343,12 @@ struct RQConsumer {
         started = rq_clock();
         wchar_t policy[16] = {};
         GetEnvironmentVariableW(L"OBS_READY_QUEUE_POLICY", policy, 16);
+        // Default: lowlatency.  "bounded" keeps the N policy for comparison.
         latest = wcscmp(policy, L"latest") == 0;
-        blog(LOG_INFO, "[ready-queue] handoff consumer v2 attached; legacy retained; policy=%s", latest ? "latest" : "bounded");
+        lowlatency = !latest && wcscmp(policy, L"bounded") != 0;
+        ll.init(shared->frequency);
+        blog(LOG_INFO, "[ready-queue] handoff consumer v2 attached; legacy retained; policy=%s",
+             latest ? "latest" : lowlatency ? "lowlatency" : "bounded");
         return true;
     }
 
@@ -381,6 +388,30 @@ struct RQConsumer {
         std::sort(ready, ready + count, [&](unsigned a, unsigned b) {
             return shared->slots[a].sequence < shared->slots[b].sequence;
         });
+        unsigned k = 0;
+        if (lowlatency) {
+            uint64_t seq[RQ_COUNT];
+            int64_t submitted[RQ_COUNT];
+            ll.begin_tick(now);
+            for (unsigned i = 0; i < RQ_COUNT; ++i)
+                if (rq_load(&shared->slots[i].state) == RQ_PUBLISHED && shared->slots[i].sequence > p)
+                    ll.observe_pending(now, shared->slots[i].submitted);
+            for (unsigned i = 0; i < count; ++i) {
+                seq[i] = shared->slots[ready[i]].sequence;
+                submitted[i] = shared->slots[ready[i]].submitted;
+            }
+            const int chosen = ll.select(seq, submitted, count, RQ_COUNT, now);
+            if (chosen < 0) {
+                ++repeats;
+                return;
+            }
+            while (k < (unsigned)chosen) {
+                InterlockedExchange(&shared->slots[ready[k++]].state, RQ_FREE);
+                ++drops;
+            }
+            consume(ready[k]);
+            return;
+        }
         bool fast_ready_stream = false;
         if (count >= 3) {
             const int64_t span = shared->slots[ready[count - 1]].submitted -
@@ -397,7 +428,6 @@ struct RQConsumer {
                 return;
             primed = true;
         }
-        unsigned k = 0;
         if (latest)
             while (k + 1 < count) {
                 InterlockedExchange(&shared->slots[ready[k++]].state, RQ_FREE);
@@ -416,24 +446,27 @@ struct RQConsumer {
                 InterlockedExchange(&shared->slots[ready[k++]].state, RQ_FREE);
                 ++drops;
             }
-        if (k < count) {
-            const unsigned i = ready[k];
-            auto &slot = shared->slots[i];
-            selected = slot.sequence;
-            InterlockedExchange(&slot.state, RQ_READING);
-            owner->context->CopyResource(output->texture, textures[i]);
-            const HRESULT hr = context->Signal(consumer_done, ++serial);
-            if (FAILED(hr)) {
-                blog(LOG_ERROR, "[ready-queue] consumer signal failed %08lx", hr);
-                retire("consumer signal failure");
-                fallback_tick();
-                return;
-            }
-            releases[i] = serial;
-            owner->context->Flush();
-        } else {
+        if (k < count)
+            consume(ready[k]);
+        else
             ++repeats;
+    }
+
+    void consume(unsigned i)
+    {
+        auto &slot = shared->slots[i];
+        selected = slot.sequence;
+        InterlockedExchange(&slot.state, RQ_READING);
+        owner->context->CopyResource(output->texture, textures[i]);
+        const HRESULT hr = context->Signal(consumer_done, ++serial);
+        if (FAILED(hr)) {
+            blog(LOG_ERROR, "[ready-queue] consumer signal failed %08lx", hr);
+            retire("consumer signal failure");
+            fallback_tick();
+            return;
         }
+        releases[i] = serial;
+        owner->context->Flush();
     }
 };
 
