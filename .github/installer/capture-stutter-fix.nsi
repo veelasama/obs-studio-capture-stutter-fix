@@ -26,7 +26,7 @@ InstallDirRegKey HKLM "${PRODUCT_REGKEY}" "InstallLocation"
 ShowInstDetails show
 ShowUninstDetails show
 
-VIProductVersion "32.2.2.2"
+VIProductVersion "32.2.2.3"
 VIAddVersionKey /LANG=1033 "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${BUILD_VERSION}"
 VIAddVersionKey /LANG=1033 "FileVersion" "${BUILD_VERSION}"
