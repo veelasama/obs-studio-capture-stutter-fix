@@ -107,7 +107,8 @@ Setup
    installation and uses its own settings. The installer is not code-signed;
    compare the SHA-256 value with ``SHA256SUMS.txt`` from the release.
 2. In the game: **V-Sync on**, 60 FPS, and G-SYNC / FreeSync off for this game.
-3. In OBS, **Settings → Video**:
+3. **Required:** in OBS, **Settings → Video**. Without this step the build
+   still removes the long episodes but drops a single frame every few minutes:
 
    - *Common FPS Values*: **60** (the starting point).
    - *Match Display*: **Auto (display with the game)**. The text below the
