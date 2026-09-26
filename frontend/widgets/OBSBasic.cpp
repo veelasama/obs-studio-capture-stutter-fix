@@ -1434,6 +1434,11 @@ void OBSBasic::applicationShutdown() noexcept
 		patronJsonThread->wait();
 	}
 
+#ifdef _WIN32
+	/* Its thread polls libobs; stop it well before obs_shutdown(). */
+	displayRefreshMatcher.reset();
+#endif
+
 	delete screenshotData;
 	delete previewProjectorSource;
 	delete previewProjectorMain;
@@ -1664,6 +1669,10 @@ int OBSBasic::ResetVideo()
 		emit CanvasResized(ovi.base_width, ovi.base_height);
 		emit OutputResized(ovi.output_width, ovi.output_height);
 	}
+
+#ifdef _WIN32
+	UpdateDisplayRefreshMatcher();
+#endif
 
 	return ret;
 }

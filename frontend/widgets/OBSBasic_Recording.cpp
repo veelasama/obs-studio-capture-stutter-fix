@@ -129,6 +129,10 @@ void OBSBasic::StartRecording()
 		return;
 	}
 
+#ifdef _WIN32
+	ApplyDisplayMatchedFPS();
+#endif
+
 	OnEvent(OBS_FRONTEND_EVENT_RECORDING_STARTING);
 
 	SaveProject();

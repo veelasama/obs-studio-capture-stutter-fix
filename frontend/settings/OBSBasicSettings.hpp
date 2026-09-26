@@ -270,6 +270,26 @@ private:
 	void LoadResolutionLists();
 	void LoadFPSData();
 
+#ifdef _WIN32
+	/* Output frame rate locked to the measured display refresh. */
+	QComboBox *matchDisplayDevice = nullptr;
+	QPushButton *matchDisplayButton = nullptr;
+	QCheckBox *matchDisplayAuto = nullptr;
+	QLabel *matchDisplayHint = nullptr;
+	QLabel *matchDisplayInfo = nullptr;
+	void SetupDisplayFpsMatch();
+	void FillDisplayFpsDevices();
+	std::wstring SelectedDisplayFpsDevice(bool &automatic) const;
+	void LoadDisplayFpsMatch();
+	void SaveDisplayFpsMatch();
+	double CurrentUiFps() const;
+	void ShowDisplayFpsResult(const std::wstring &device, double hz, double ppm, double outputFps);
+	void ShowDisplayFpsAutoStatus();
+	void UpdateDisplayFpsHint();
+	void UpdateDisplayFpsLock();
+	void MeasureDisplayFps();
+#endif
+
 	/* a11y */
 	void UpdateA11yColors();
 	void SetDefaultColors();

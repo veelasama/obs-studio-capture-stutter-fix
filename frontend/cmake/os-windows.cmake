@@ -25,6 +25,12 @@ target_sources(
     utility/AutoUpdateThread.cpp
     utility/AutoUpdateThread.hpp
     utility/CrashHandler_Windows.cpp
+    utility/DisplayRefreshMatcher.cpp
+    utility/DisplayRefreshMatcher.hpp
+    utility/DisplayRefreshMeasure.cpp
+    utility/DisplayRefreshMeasure.hpp
+    utility/GameDisplay.cpp
+    utility/GameDisplay.hpp
     utility/NativeEventFilter_Windows.cpp
     utility/WhatsNewBrowserInitThread.cpp
     utility/WhatsNewBrowserInitThread.hpp
@@ -39,6 +45,8 @@ target_sources(
     utility/update-helpers.cpp
     utility/update-helpers.hpp
     utility/win-dll-blocklist.c
+    settings/OBSBasicSettings_DisplayFPS.cpp
+    widgets/OBSBasic_DisplayFPS.cpp
 )
 
 add_library(obs-updater-manifest INTERFACE)
@@ -50,6 +58,7 @@ target_link_libraries(
   obs-studio
   PRIVATE
     crypt32
+    gdi32
     OBS::blake2
     OBS::updater-manifest
     OBS::w32-pthreads

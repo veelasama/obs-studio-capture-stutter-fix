@@ -29,6 +29,9 @@
 #include <utility/VCamConfig.hpp>
 #include <utility/platform.hpp>
 #include <utility/undo_stack.hpp>
+#ifdef _WIN32
+#include <utility/DisplayRefreshMatcher.hpp>
+#endif
 
 #include <obs-frontend-internal.hpp>
 #include <obs.hpp>
@@ -307,6 +310,20 @@ public:
 
 	int ResetVideo();
 	bool ResetAudio();
+
+#ifdef _WIN32
+	/* Output frame rate locked to the measured display refresh; see
+	 * utility/DisplayRefreshMatcher.hpp. */
+	void UpdateDisplayRefreshMatcher();
+	void ApplyDisplayMatchedFPS();
+	bool LatestDisplayRefresh(const std::wstring &device, double &hz, double &uncertaintyPpm,
+				  uint64_t &ageMs) const;
+
+private:
+	std::unique_ptr<DisplayRefreshMatcher> displayRefreshMatcher;
+
+public:
+#endif
 
 	void UpdateTitleBar();
 

@@ -539,6 +539,9 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 	HookWidget(ui->fpsInteger,           SCROLL_CHANGED, VIDEO_CHANGED);
 	HookWidget(ui->fpsNumerator,         SCROLL_CHANGED, VIDEO_CHANGED);
 	HookWidget(ui->fpsDenominator,       SCROLL_CHANGED, VIDEO_CHANGED);
+#ifdef _WIN32
+	SetupDisplayFpsMatch();
+#endif
 	HookWidget(ui->colorsGroupBox,       GROUP_CHANGED,  A11Y_CHANGED);
 	HookWidget(ui->colorPreset,          COMBO_CHANGED,  A11Y_CHANGED);
 	HookWidget(ui->renderer,             COMBO_CHANGED,  ADV_RESTART);
@@ -1727,6 +1730,9 @@ void OBSBasicSettings::LoadVideoSettings()
 
 	LoadResolutionLists();
 	LoadFPSData();
+#ifdef _WIN32
+	LoadDisplayFpsMatch();
+#endif
 	LoadDownscaleFilters();
 
 	loading = false;
@@ -3263,6 +3269,9 @@ void OBSBasicSettings::SaveVideoSettings()
 	SaveSpinBox(ui->fpsNumerator, "Video", "FPSNum");
 	SaveSpinBox(ui->fpsDenominator, "Video", "FPSDen");
 	SaveComboData(ui->downscaleFilter, "Video", "ScaleType");
+#ifdef _WIN32
+	SaveDisplayFpsMatch();
+#endif
 }
 
 void OBSBasicSettings::SaveAdvancedSettings()
