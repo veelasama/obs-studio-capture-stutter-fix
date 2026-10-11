@@ -1,7 +1,7 @@
 # Capture Stutter Fix — technical notes
 
 This document describes the mechanism and the implementation. For the
-symptom checklist, setup and frame-rate scenarios see [README.rst](README.rst).
+symptom checklist, setup and frame-rate scenarios see [README.md](README.md).
 
 ## Mechanism
 
@@ -34,6 +34,7 @@ symptom checklist, setup and frame-rate scenarios see [README.rst](README.rst).
 | Producers | `graphics-hook/ready_queue_{producer,d3d9,d3d10,d3d12,gl,vulkan}*` | D3D11 fence; D3D9/D3D10 event queries; D3D11On12; `WGL_NV_DX_interop`; imported Vulkan images with `VkFence`. |
 | Consumer | `libobs-d3d11/ready_queue_consumer.hpp`, `ready_queue_lowlatency.hpp` | Selection policy below; runs once per OBS video tick. |
 | DXGI Display Capture | `libobs-d3d11/ready_queue_dxgi_duplicator.hpp` | Separate producer thread and device; pointer-only updates ignored; same selection policy. |
+| Windows Graphics Capture | `libobs-winrt/winrt-capture.cpp` | Window and Display Capture in *Windows 10 (1903 and up)* mode: arrived frames copied into six textures, same selection policy. |
 | Capture limiter | `graphics-hook/graphics-hook.h` `frame_ready()` | Token bucket, see below. |
 | Preview | `libobs-d3d11/d3d11-subsystem.cpp` | Swap-chain maximum frame latency 2. |
 | Scheduling | `libobs/obs-video.c` | Graphics thread joins MMCSS `Playback`, `AVRT_PRIORITY_HIGH`. |
@@ -61,6 +62,42 @@ registered Vulkan layer.
 only at six ready frames or for sources faster than 14 ms per frame. Its
 latency grew by the full clock difference: 26 ms → 77 ms over 20 minutes in the
 recorded Rogue Trader trace.
+
+## Windows Graphics Capture
+
+Stock OBS copies every arrived WGC frame into one texture. Frame-arrived
+events are delivered on the graphics thread, whose message pump runs once per
+video tick just before rendering, so the shown frame is whichever one the
+compositor finished before that pump: the same latest-frame race as Game
+Capture. Match Display alone cannot fix this; with the rates matched the phase
+stays wherever it started, so the race either never happens or happens for
+the whole recording.
+
+The fork copies each arrived frame into one of six textures with a sequence
+number and `SystemRelativeTime` (the compositor's QPC time), and selects the
+shown frame once per video frame (first render, keyed by
+`obs_get_video_frame_time`) with the `lowlatency` policy. A frame composed
+before the previous selection but delivered after it is reported as a pending
+age, which feeds the latency controller the same way an incomplete fence
+does. The frame pool holds four buffers instead of two so that frames waiting
+for the next pump are not dropped by WGC.
+
+Windows 11 24H2 and later also limit delivery to one frame per
+`GraphicsCaptureSession.MinUpdateInterval`. With the default limit a display
+running at 60.003 Hz loses one frame every 1-4 s (in the lab: 37 skipped
+frames in 120 s that DXGI Desktop Duplication of the same window did not
+lose). The fork sets the interval to 1 ms when the property exists and the
+queue is enabled; faster sources are then decimated by the queue. If the source is not rendered for
+250 ms the policy is primed again. `OBS_WGC_READY_QUEUE=0` or
+`OBS_READY_QUEUE_POLICY=latest` restore the stock behavior. Log lines:
+
+```
+[wgc-ready-queue] window capture attached; 6 textures; policy=lowlatency
+[wgc-ready-queue] stop selections=... repeats=... producer_drops=... consumer_drops=... latency_sheds=...
+```
+
+Window Capture in *BitBlt* mode copies the window synchronously at the tick
+and is unchanged.
 
 ## Capture limiter
 
@@ -96,7 +133,7 @@ display: it looks for the closest ratio p/q with q ≤ 12 within 0.3 % (60 on
 The background matcher measures all displays in turn (or the selected one) for
 10 s each, then pauses 60 s, and only while `obs_video_active()` is false.
 `OBSBasic::StartRecording` resolves the display (selected, or the monitor of
-the Game Capture window, then the foreground window, then the primary
+the Game Capture or Window Capture window, then the foreground window, then the primary
 display), and resets video with the new rate when it differs by more than
 0.2 ppm. The matched rate is kept in memory and is not written to the
 profile by itself, so the configured base rate (for example 60) stays the
@@ -110,10 +147,46 @@ Log lines:
 [ready-queue] consumer stop selections=... repeats=... age_drops=... latency_sheds=...
 ```
 
+## Validation
+
+Windows 11, GeForce RTX 5070 Ti, 2560×1440. Test sources draw a frame number
+into every frame; the number was decoded from every frame of each recording.
+
+**Game Capture, v1.0.1 against v1.1.0** (source replaying real Rogue Trader
+present timings, 240 s per run):
+
+| Scenario | v1.0.1 | v1.1.0 |
+|---|---|---|
+| Rogue Trader timing, clock drift ×10 | 5 corrections (one skipped two frames); latency varies over 58 ms | 6 single-frame corrections; latency varies over 33 ms |
+| 120 FPS source into 60 FPS | 959 cadence errors, 58 s with bursts | 37 cadence errors, 2 s with bursts |
+| Game hitch (late frame, then quick frame) every 3 s | 72 repeats + 79 skips | 0 repeats |
+| 120 FPS source, *Limit capture framerate* on (120 s) | — | 385 cadence errors — keep the option off above 60 FPS |
+| *Limit capture framerate* on, 59.94 FPS source | 578 repeats + 564 skips, 138 s with bursts | 14 repeats (the unavoidable number for 59.94 → 60) |
+
+With Match Display active, a recording started from the automatic mode had
+exactly 699033/11650 = 60.00283 FPS. In Rogue Trader (Direct3D 11) a
+7.5-minute gameplay recording contained a single one-frame correction.
+Satisfactory (Direct3D 12) showed a clear improvement.
+
+**Windows Graphics Capture, v1.1.0 (stock path) against v1.2.0** (1280×720
+V-Sync window, 120 s at 60.03 FPS — slightly faster than the display, so the
+phases cross about every 37 s and three single repeats are unavoidable):
+
+| Source | v1.1.0 | v1.2.0 |
+|---|---|---|
+| Window Capture | 130 repeats + 127 skips; bursts of up to 71 errors over 4–6 s | 3 repeats, 0 skips |
+| Display Capture | 139 repeats + 136 skips; bursts of up to 61 errors | 3 repeats + one 2-frame glitch |
+| Display Capture, DXGI (reference) | — | 3 repeats, 0 skips |
+
+At the Match Display rate a 180 s Window Capture recording had one repeat, at
+the one frame OBS itself reported as rendering lag.
+
+Not verified: HDR, Vulkan since v1.0.1, Linux and macOS.
+
 ## Limits
 
-- Windows Graphics Capture, Window Capture (BitBlt/WGC), browser sources and
-  capture cards are unchanged.
+- Window Capture in BitBlt mode, browser sources and capture cards are
+  unchanged.
 - HDR paths are present but were validated in SDR only.
 - The Vulkan producer is unchanged from v1.0.1 and was not re-run for v1.1.0.
 - A frame-rate limiter, G-SYNC or FreeSync makes the game follow the CPU clock;

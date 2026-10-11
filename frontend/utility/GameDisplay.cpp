@@ -39,7 +39,10 @@ struct CaptureSpec {
 bool ReadCaptureSpec(void *param, obs_source_t *source)
 {
 	auto *spec = static_cast<CaptureSpec *>(param);
-	if (strcmp(obs_source_get_unversioned_id(source), "game_capture") != 0)
+	/* Game Capture in window mode, or Window Capture (same window spec). */
+	const char *id = obs_source_get_unversioned_id(source);
+	const bool game = strcmp(id, "game_capture") == 0;
+	if (!game && strcmp(id, "window_capture") != 0)
 		return true;
 
 	const bool active = obs_source_active(source);
@@ -50,7 +53,7 @@ bool ReadCaptureSpec(void *param, obs_source_t *source)
 	const char *mode = obs_data_get_string(settings, "capture_mode");
 	const std::string window = obs_data_get_string(settings, "window");
 	obs_data_release(settings);
-	if (!mode || strcmp(mode, "window") != 0 || window.empty())
+	if ((game && (!mode || strcmp(mode, "window") != 0)) || window.empty())
 		return true;
 
 	const size_t first = window.find(':');
