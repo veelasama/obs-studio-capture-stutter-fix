@@ -13,10 +13,13 @@ for what this build does and does not fix.
 ## Changes
 
 - **Window Capture and Display Capture in *Windows 10 (1903 and up)* mode**
-  now use the same frame queue as Game Capture. Select this *Capture Method*
-  explicitly in Window Capture: *Automatic* picks BitBlt for games, and BitBlt
-  is not fixed. See [Supported capture sources](https://github.com/veelasama/obs-studio-capture-stutter-fix#supported-capture-sources).
+  now use the same frame queue as Game Capture.
 - **Match Display** also detects the display of a Window Capture window.
+
+> **Capture Method must not be *Automatic*.** Window Capture → **Windows 10
+> (1903 and up)**; Display Capture → **DXGI Desktop Duplication** or
+> **Windows 10 (1903 and up)**. *Automatic* picks BitBlt for games, and
+> BitBlt is not fixed. See [Supported capture sources](https://github.com/veelasama/obs-studio-capture-stutter-fix#supported-capture-sources).
 
 Unchanged from v1.1.0: Game Capture and DXGI Display Capture queues, no
 audio/video drift, Match Display for recordings only, *Limit capture

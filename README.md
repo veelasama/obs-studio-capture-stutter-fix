@@ -34,9 +34,14 @@ fluctuating frame rate.
 | **Window Capture** | *Windows 10 (1903 and up)* | ✅ since v1.2.0 |
 | **Window Capture** | *BitBlt (Windows 7 and up)* | ❌ |
 
-In Window Capture, select *Windows 10 (1903 and up)* explicitly: *Automatic*
-picks BitBlt for almost every game. In OBS 33 these methods are called
-*Modern (WGC)*, *Legacy (DXGI)* and *Legacy (BitBlt)*.
+> **Do not leave *Capture Method* on *Automatic*.** Select it explicitly:
+> **Window Capture → *Windows 10 (1903 and up)***, **Display Capture →
+> *DXGI Desktop Duplication* or *Windows 10 (1903 and up)***. In Window
+> Capture *Automatic* picks BitBlt for almost every game, and BitBlt is not
+> fixed.
+
+In OBS 33 these methods are called *Modern (WGC)*, *Legacy (DXGI)* and
+*Legacy (BitBlt)*.
 
 ## Setup
 
@@ -48,8 +53,9 @@ picks BitBlt for almost every game. In OBS 33 these methods are called
    *Match Display*: **Auto (display with the game)**, click **Measure and Set**
    (takes 15 s), then **Apply**.
 4. Add **Game Capture** (*Capture specific window*), leave *Limit capture
-   framerate* off. Window Capture or Display Capture also work with the
-   methods marked ✅ above.
+   framerate* off. With **Window Capture** set *Capture Method* to
+   **Windows 10 (1903 and up)**; with **Display Capture** to **DXGI Desktop
+   Duplication** or **Windows 10 (1903 and up)** — not *Automatic*.
 5. Record.
 
 Match Display gives the recording a frame rate such as 60.0028 FPS.
