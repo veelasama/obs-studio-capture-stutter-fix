@@ -74,8 +74,13 @@ Use one of these. **Never leave *Capture Method* on *Automatic*.**
 
 ### Step 4 — Frame rate (Settings → Video)
 
-Set *Common FPS Values* to **60**, select the display in *Match Display* as
-shown in the table above, then use **one** of the two methods:
+**First time only:** set *Common FPS Values* to **60**. Measure and Set keeps
+the rate that is selected and only adjusts it to the display (60 → 60.0028,
+30 → 30.0014). After measuring, the field shows a fraction; later
+measurements start from it, so you do not need to touch it again.
+
+Select the display in *Match Display* as shown in the table above, then use
+**one** of the two methods:
 
 **Method A — Measure and Set (recommended)**
 
