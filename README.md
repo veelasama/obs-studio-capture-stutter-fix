@@ -45,49 +45,69 @@ In OBS 33 these methods are called *Modern (WGC)*, *Legacy (DXGI)* and
 
 ## Setup
 
-1. Install from the [latest release](https://github.com/veelasama/obs-studio-capture-stutter-fix/releases/latest)
-   and start **OBS Studio Capture Stutter Fix**. It installs next to the
-   official OBS and keeps its own settings.
-2. In the game: **V-Sync on**, 60 FPS, G-SYNC / FreeSync off.
-3. **Required — Settings → Video:** set *Common FPS Values* to **60**, choose
-   *Match Display*: **Auto (display with the game)**, click **Measure and Set**
-   (takes 15 s), then **Apply**.
-4. Add **Game Capture** (*Capture specific window*), leave *Limit capture
-   framerate* off. With **Window Capture** set *Capture Method* to
-   **Windows 10 (1903 and up)**; with **Display Capture** to **DXGI Desktop
-   Duplication** or **Windows 10 (1903 and up)** — not *Automatic*.
-5. Record.
+Follow the steps in order. Steps 3 and 4 are required: without them the
+build still records, but keeps dropping single frames.
 
-Match Display gives the recording a frame rate such as 60.0028 FPS.
-**Use it for recordings only**; for streaming select 60 again.
+### Step 1 — Install
 
-<details>
-<summary>Setup details</summary>
+Download the installer from the [latest release](https://github.com/veelasama/obs-studio-capture-stutter-fix/releases/latest)
+and start **OBS Studio Capture Stutter Fix**. It installs to
+`C:\Program Files\obs-studio-capture-stutter-fix`, next to the official OBS
+and over earlier versions of this fork, and keeps its own settings. The
+installer is not code-signed, so SmartScreen may warn about an unknown
+publisher; you can compare the file with `SHA256SUMS.txt` from the release.
 
-- **Installer.** Installs to `C:\Program Files\obs-studio-capture-stutter-fix`,
-  over earlier versions of this fork. It is not code-signed, so SmartScreen
-  may warn about an unknown publisher; compare the file with `SHA256SUMS.txt`
-  from the release.
-- **Why step 3 is required.** Without it the build still removes the long
-  episodes, but drops a single frame every few minutes.
-- **Which display.** The text under the *Match Display* list shows which
-  display the captured window is on. You can also pick a display manually.
-- **When to measure again.** After changing the display mode, cable, display
-  or graphics card. The measured value stays stable otherwise.
-- **Alternative: automatic mode.** Instead of the button, enable
-  **Re-check automatically before each recording**. Displays are then measured
-  in the background (about 10 s each) while nothing records or streams, and
-  the frame rate is set from the latest measurement when a recording starts,
-  without delaying it. The FPS fields are locked while this option is on; for
-  streaming turn it off. If no measurement exists yet (recording started
-  seconds after launching OBS), the rate already stored in the profile is used,
-  so click **Measure and Set** once even when using this mode.
-- **Other outputs.** While a stream, replay buffer or virtual camera is
-  running, the frame rate is not changed.
-- **Check it worked.** The log contains a line such as
-  `[display-fps] \\.\DISPLAY2 (game window) 60.0028326 Hz ...: output 60/1 -> 699033/11650`.
+### Step 2 — Game
 
-</details>
+**V-Sync on**, 60 FPS, G-SYNC / FreeSync off for this game. Leave the display
+at the refresh rate the game uses (normally 60 Hz).
+
+### Step 3 — Capture source
+
+Use one of these. **Never leave *Capture Method* on *Automatic*.**
+
+| You capture with | Set | Match Display (step 4) |
+|---|---|---|
+| **Game Capture** (preferred) | *Mode*: **Capture specific window**; *Limit capture framerate*: **off** | **Auto (display with the game)** |
+| **Window Capture** | *Capture Method*: **Windows 10 (1903 and up)** — required, BitBlt is not fixed | **Auto (display with the game)** |
+| **Display Capture** | *Capture Method*: **DXGI Desktop Duplication** or **Windows 10 (1903 and up)** | **the captured monitor**, selected manually |
+
+### Step 4 — Frame rate (Settings → Video)
+
+Set *Common FPS Values* to **60**, select the display in *Match Display* as
+shown in the table above, then use **one** of the two methods:
+
+**Method A — Measure and Set (recommended)**
+
+1. Click **Measure and Set**. The measurement takes about **15 seconds**;
+   wait until the dialog closes.
+2. Click **Apply**. The frame rate field now shows a value such as
+   699033/11650 (60.0028 FPS).
+3. Repeat before a recording session, and always after changing the display,
+   its refresh rate, the cable or the graphics card.
+
+**Method B — Automatic**
+
+1. Enable **Re-check automatically before each recording** and click
+   **Apply**. The FPS fields are locked while this option is on.
+2. OBS now measures the displays in the background, about **10 seconds per
+   display**, only while nothing records, streams or runs a replay buffer.
+3. **After starting OBS, wait at least 10 seconds (20 seconds with two
+   monitors) before you start recording.** A recording started earlier uses
+   the frame rate already stored in the profile, so click **Measure and Set**
+   once before switching to this method.
+4. When a recording starts, the frame rate is set from the latest measurement
+   without delaying the start.
+
+### Step 5 — Record
+
+Start the recording as usual. To confirm that Match Display was applied, open
+**Help → Log Files → View Current Log** and look for a line such as
+`[display-fps] \.\DISPLAY2 (game window) 60.0028326 Hz ...: output 60/1 -> 699033/11650`.
+
+> **Recordings only.** Streaming services expect a standard frame rate: before
+> streaming, turn Method B off and select **60**. While a stream, replay
+> buffer or virtual camera is running, the frame rate is not changed.
 
 <details>
 <summary>Other frame rates (120 Hz, 144 Hz, FPS limiter, G-SYNC)</summary>
