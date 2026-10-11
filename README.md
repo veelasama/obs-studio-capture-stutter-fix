@@ -44,18 +44,16 @@ picks BitBlt for almost every game. In OBS 33 these methods are called
    and start **OBS Studio Capture Stutter Fix**. It installs next to the
    official OBS and keeps its own settings.
 2. In the game: **V-Sync on**, 60 FPS, G-SYNC / FreeSync off.
-3. **Required — Settings → Video:**
-   - *Common FPS Values*: **60**
-   - *Match Display*: **Auto (display with the game)**
-   - enable **Re-check automatically before each recording**, click **Apply**.
+3. **Required — Settings → Video:** set *Common FPS Values* to **60**, choose
+   *Match Display*: **Auto (display with the game)**, click **Measure and Set**
+   (takes 15 s), then **Apply**.
 4. Add **Game Capture** (*Capture specific window*), leave *Limit capture
    framerate* off. Window Capture or Display Capture also work with the
    methods marked ✅ above.
 5. Record.
 
 Match Display gives the recording a frame rate such as 60.0028 FPS.
-**Use it for recordings only**; for streaming turn the automatic option off
-and select 60.
+**Use it for recordings only**; for streaming select 60 again.
 
 <details>
 <summary>Setup details</summary>
@@ -68,15 +66,16 @@ and select 60.
   episodes, but drops a single frame every few minutes.
 - **Which display.** The text under the *Match Display* list shows which
   display the captured window is on. You can also pick a display manually.
-- **How the automatic mode works.** Displays are measured in the background
-  (about 10 s each) while nothing records or streams. When a recording starts,
-  the frame rate is set from the latest measurement without delaying the
-  start. The FPS fields are locked while this option is on. If no measurement
-  exists yet (recording started seconds after launching OBS), the recording
-  uses the rate already stored in the profile.
-- **Fixed value instead.** Click **Measure and Set** once instead of enabling
-  the automatic option. Re-measure after changing the display mode, cable,
-  display or graphics card.
+- **When to measure again.** After changing the display mode, cable, display
+  or graphics card. The measured value stays stable otherwise.
+- **Alternative: automatic mode.** Instead of the button, enable
+  **Re-check automatically before each recording**. Displays are then measured
+  in the background (about 10 s each) while nothing records or streams, and
+  the frame rate is set from the latest measurement when a recording starts,
+  without delaying it. The FPS fields are locked while this option is on; for
+  streaming turn it off. If no measurement exists yet (recording started
+  seconds after launching OBS), the rate already stored in the profile is used,
+  so click **Measure and Set** once even when using this mode.
 - **Other outputs.** While a stream, replay buffer or virtual camera is
   running, the frame rate is not changed.
 - **Check it worked.** The log contains a line such as
