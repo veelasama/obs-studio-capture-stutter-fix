@@ -35,8 +35,11 @@ struct d3d11_data {
 
 static struct d3d11_data data = {};
 
+static void rq_producer_free();
+
 void d3d11_free(void)
 {
+	rq_producer_free();
 	capture_free();
 
 	if (data.using_shtex) {
@@ -124,6 +127,8 @@ static bool create_d3d11_tex(uint32_t cx, uint32_t cy, ID3D11Texture2D **tex, HA
 	return true;
 }
 
+#include "ready_queue_producer.hpp"
+
 static inline bool d3d11_init_format(IDXGISwapChain *swap, HWND &window)
 {
 	DXGI_SWAP_CHAIN_DESC desc;
@@ -204,6 +209,7 @@ static bool d3d11_shtex_init(HWND window)
 		hlog("d3d11_shtex_init: failed to create texture");
 		return false;
 	}
+	rq_producer_init();
 	if (!capture_init_shtex(&data.shtex_info, window, data.cx, data.cy, data.format, false,
 				(uintptr_t)data.handle)) {
 		return false;
@@ -251,7 +257,12 @@ static inline void d3d11_copy_texture(ID3D11Resource *dst, ID3D11Resource *src)
 static inline void d3d11_shtex_capture(ID3D11Resource *backbuffer)
 {
 	if (data.texture) {
-		d3d11_copy_texture(data.texture, backbuffer);
+		ID3D11Texture2D *target = rq_producer ? rq_producer->begin() : data.texture;
+		if (!target)
+			return;
+		d3d11_copy_texture(target, backbuffer);
+		if (rq_producer)
+			rq_producer->end(0);
 	}
 }
 

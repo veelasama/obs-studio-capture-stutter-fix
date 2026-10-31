@@ -758,8 +758,11 @@ struct gs_vertex_shader : gs_shader {
 	gs_vertex_shader(gs_device_t *device, const char *file, const char *shaderString);
 };
 
+struct RQDXGIAsyncQueue;
+
 struct gs_duplicator : gs_obj {
 	ComPtr<IDXGIOutputDuplication> duplicator;
+	RQDXGIAsyncQueue *dxgi_queue = nullptr;
 	gs_texture_2d *texture;
 	bool hdr = false;
 	enum gs_color_space color_space = GS_CS_SRGB;
@@ -770,7 +773,7 @@ struct gs_duplicator : gs_obj {
 
 	void Start();
 
-	inline void Release() { duplicator.Release(); }
+	void Release();
 
 	gs_duplicator(gs_device_t *device, int monitor_idx);
 	~gs_duplicator();

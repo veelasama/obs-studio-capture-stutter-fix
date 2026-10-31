@@ -1,0 +1,157 @@
+name: Windows Capture Stutter Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+    tags:
+      - '33.0.1-capture-stutter-fix-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.number || github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    name: Windows x64 installer
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Build OBS Studio
+        uses: ./.github/actions/build-obs
+        with:
+          target: x64
+          config: RelWithDebInfo
+
+      - name: Create OBS package
+        uses: ./.github/actions/package-obs
+        with:
+          target: x64
+          config: RelWithDebInfo
+
+      - name: Create installer and checksum
+        id: package
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $releaseVersion = if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $env:GITHUB_REF_NAME -replace '^33\.0\.1-capture-stutter-fix-', ''
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            "pr-$env:GITHUB_RUN_NUMBER"
+          } else {
+            "build-$env:GITHUB_RUN_NUMBER"
+          }
+          $productVersion = "33.0.1-Capture-Stutter-Fix-$releaseVersion"
+          $artifactBase = "OBS-Studio-$productVersion-Windows-x64"
+          $output = Join-Path $env:GITHUB_WORKSPACE 'release-output'
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'installer-stage'
+          New-Item -ItemType Directory -Force -Path $output, $stage | Out-Null
+
+          $package = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE 'build_x64') -Filter 'obs-studio-*-windows-x64.zip' -File | Select-Object -First 1
+          if (-not $package) { throw 'CPack Windows x64 ZIP was not produced.' }
+          Expand-Archive -LiteralPath $package.FullName -DestinationPath $stage
+
+          $obs = Join-Path $stage 'bin\64bit\obs64.exe'
+          if (-not (Test-Path -LiteralPath $obs)) {
+            $root = @(Get-ChildItem -LiteralPath $stage -Directory)
+            if ($root.Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $root[0].FullName 'bin\64bit\obs64.exe'))) {
+              Get-ChildItem -LiteralPath $root[0].FullName -Force | Move-Item -Destination $stage
+              Remove-Item -LiteralPath $root[0].FullName
+            }
+          }
+          if (-not (Test-Path -LiteralPath $obs)) { throw 'Packaged obs64.exe was not found.' }
+
+          $requiredResources = @(
+            (Join-Path $stage 'data\obs-studio\themes\System.obt'),
+            (Join-Path $stage 'data\obs-studio\themes\Yami.obt'),
+            (Join-Path $stage 'data\obs-studio\themes\Yami_Default.ovt'),
+            (Join-Path $stage 'data\libobs\default.effect'),
+            (Join-Path $stage 'data\libobs\opaque.effect'),
+            (Join-Path $stage 'data\libobs\format_conversion.effect')
+          )
+          foreach ($resource in $requiredResources) {
+            if (-not (Test-Path -LiteralPath $resource -PathType Leaf)) {
+              throw "Required packaged OBS resource is missing: $resource"
+            }
+          }
+          $themeLookup = Select-String -LiteralPath 'frontend\OBSApp_Themes.cpp' -SimpleMatch 'GetDataFilePath("themes", themeDir);'
+          if (-not $themeLookup) {
+            throw 'Windows theme discovery must not pass a trailing slash to os_file_exists.'
+          }
+
+          choco install nsis --yes --no-progress
+          $installer = Join-Path $output "$artifactBase-Installer.exe"
+          $makensis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          & $makensis "/DSTAGE_DIR=$stage" "/DOUTPUT_FILE=$installer" "/DBUILD_VERSION=$productVersion" '.github\installer\capture-stutter-fix.nsi'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer)) { throw 'NSIS installer creation failed.' }
+
+          # Install silently into an isolated directory and inspect the real
+          # shortcut produced by NSIS. This catches incorrect OBS working
+          # directories without trying to launch a GUI on a headless runner.
+          $smokeInstall = Join-Path $env:RUNNER_TEMP 'obs-capture-stutter-installer-smoke'
+          if (-not $smokeInstall.StartsWith($env:RUNNER_TEMP, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Installer smoke directory escaped RUNNER_TEMP.'
+          }
+          $desktopShortcut = Join-Path $env:USERPROFILE 'Desktop\OBS Studio Capture Stutter Fix.lnk'
+          try {
+            $installProcess = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$smokeInstall" -WindowStyle Hidden -Wait -PassThru
+            if ($installProcess.ExitCode -ne 0) { throw "Silent installer smoke test failed with code $($installProcess.ExitCode)." }
+            $installedObs = Join-Path $smokeInstall 'bin\64bit\obs64.exe'
+            if (-not (Test-Path -LiteralPath $installedObs -PathType Leaf)) { throw 'Installed obs64.exe was not found.' }
+            if (-not (Test-Path -LiteralPath (Join-Path $smokeInstall 'data\libobs\default.effect') -PathType Leaf)) {
+              throw 'Installed libobs resources were not found.'
+            }
+            if (-not (Test-Path -LiteralPath $desktopShortcut -PathType Leaf)) { throw 'Installer desktop shortcut was not created.' }
+            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = $shell.CreateShortcut($desktopShortcut)
+            $expectedWorkingDirectory = Join-Path $smokeInstall 'bin\64bit'
+            if ($shortcut.WorkingDirectory -ne $expectedWorkingDirectory) {
+              throw "Installer shortcut working directory is '$($shortcut.WorkingDirectory)', expected '$expectedWorkingDirectory'."
+            }
+          } finally {
+            $uninstaller = Join-Path $smokeInstall 'Uninstall.exe'
+            if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+              Start-Process -FilePath $uninstaller -ArgumentList '/S' -WindowStyle Hidden -Wait
+            }
+            Remove-Item -LiteralPath $desktopShortcut -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $smokeInstall -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          $checksums = Join-Path $output 'SHA256SUMS.txt'
+          Get-ChildItem -LiteralPath $output -File | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Add-Content -LiteralPath $checksums -Encoding utf8
+          }
+          "artifact_base=$artifactBase" >> $env:GITHUB_OUTPUT
+          "release_version=$releaseVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capture-stutter-windows-x64
+          compression-level: 0
+          path: release-output/*
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/33.0.1-capture-stutter-fix-v')
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          name: OBS Studio 33.0.1 Capture Stutter Fix ${{ steps.package.outputs.release_version }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: |
+            release-output/*-Installer.exe
+            release-output/SHA256SUMS.txt

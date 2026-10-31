@@ -1,5 +1,13 @@
 #include "winrt-capture.h"
 
+#include "../libobs-d3d11/ready_queue_lowlatency.hpp"
+
+/* Frames the pool can hold until the graphics thread pumps its messages once
+ * per video tick; enough for a 240 FPS source without WGC dropping frames. */
+static constexpr int32_t WGC_POOL_BUFFERS = 4;
+/* Copies of arrived frames, including the one being shown. */
+static constexpr unsigned WGC_QUEUE_SLOTS = 6;
+
 extern "C" EXPORT BOOL winrt_capture_supported()
 try {
 	/* no contract for IGraphicsCaptureItemInterop, verify 10.0.18362.0 */
@@ -91,6 +99,32 @@ static DXGI_FORMAT get_pixel_format(HWND window, HMONITOR monitor, BOOL force_sd
 	return (monitor && gs_is_monitor_hdr(monitor)) ? DXGI_FORMAT_R16G16B16A16_FLOAT : sdr_format;
 }
 
+struct wgc_slot {
+	gs_texture_t *texture;
+	uint32_t width;
+	uint32_t height;
+	uint64_t sequence; /* 0: free */
+	int64_t submitted; /* composition time, QPC ticks */
+};
+
+static int64_t wgc_qpc_now()
+{
+	LARGE_INTEGER value;
+	QueryPerformanceCounter(&value);
+	return value.QuadPart;
+}
+
+static bool wgc_queue_requested()
+{
+	wchar_t value[16] = {};
+	const DWORD length = GetEnvironmentVariableW(L"OBS_WGC_READY_QUEUE", value, _countof(value));
+	if (length && length < _countof(value) && value[0] == L'0')
+		return false;
+	wchar_t policy[16] = {};
+	GetEnvironmentVariableW(L"OBS_READY_QUEUE_POLICY", policy, _countof(policy));
+	return wcscmp(policy, L"latest") != 0;
+}
+
 struct winrt_capture {
 	HWND window;
 	BOOL client_area;
@@ -101,8 +135,25 @@ struct winrt_capture {
 	bool capture_cursor;
 	BOOL cursor_visible;
 
-	gs_texture_t *texture;
+	gs_texture_t *texture; /* texture of the shown slot */
 	bool texture_written;
+
+	/* Arrived frames are queued and the shown one is chosen once per video
+	 * frame by sequence, like Game Capture's ready queue, instead of
+	 * whichever frame the message pump delivered last before the tick. */
+	wgc_slot slots[WGC_QUEUE_SLOTS];
+	int shown = -1;
+	uint64_t next_sequence = 1;
+	uint64_t last_frame_time = 0;
+	int64_t last_select = 0;
+	int64_t qpc_frequency = 0;
+	bool queue_enabled = true;
+	bool logged_attach = false;
+	RQLowLatency ll;
+	uint64_t selections = 0;
+	uint64_t repeats = 0;
+	uint64_t producer_drops = 0;
+	uint64_t consumer_drops = 0;
 	winrt::Windows::Graphics::Capture::GraphicsCaptureItem item{nullptr};
 	winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice device{nullptr};
 	ComPtr<ID3D11DeviceContext> context;
@@ -128,8 +179,60 @@ struct winrt_capture {
 	void on_frame_arrived(winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool const &sender,
 			      winrt::Windows::Foundation::IInspectable const &)
 	{
-		const winrt::Windows::Graphics::Capture::Direct3D11CaptureFrame frame = sender.TryGetNextFrame();
+		/* One event per frame, but take everything the pool holds so a late
+		 * pump cannot leave frames behind. */
+		for (;;) {
+			const winrt::Windows::Graphics::Capture::Direct3D11CaptureFrame frame = sender.TryGetNextFrame();
+			if (!frame || !store_frame(frame))
+				return;
+		}
+	}
+
+	int64_t frame_submitted(const winrt::Windows::Graphics::Capture::Direct3D11CaptureFrame &frame) const
+	{
+		/* SystemRelativeTime is QPC in 100 ns units. */
+		const int64_t units = frame.SystemRelativeTime().count();
+		return units > 0 && qpc_frequency ? (int64_t)((double)units * (double)qpc_frequency / 1e7)
+						  : wgc_qpc_now();
+	}
+
+	wgc_slot *acquire_slot(uint32_t width, uint32_t height, DXGI_FORMAT dxgi_format)
+	{
+		wgc_slot *slot = nullptr;
+		for (unsigned i = 0; i < WGC_QUEUE_SLOTS; ++i) {
+			if ((int)i != shown && !slots[i].sequence) {
+				slot = &slots[i];
+				break;
+			}
+		}
+		if (!slot) {
+			/* Not rendered for a while: replace the oldest queued frame. */
+			for (unsigned i = 0; i < WGC_QUEUE_SLOTS; ++i) {
+				if ((int)i != shown && (!slot || slots[i].sequence < slot->sequence))
+					slot = &slots[i];
+			}
+			++producer_drops;
+		}
+		slot->sequence = 0;
+
+		if (slot->texture && (slot->width != width || slot->height != height)) {
+			gs_texture_destroy(slot->texture);
+			slot->texture = nullptr;
+		}
+		if (!slot->texture) {
+			const gs_color_format color_format = dxgi_format == DXGI_FORMAT_R16G16B16A16_FLOAT ? GS_RGBA16F
+													   : GS_BGRA;
+			slot->texture = gs_texture_create(width, height, color_format, 1, NULL, 0);
+			slot->width = width;
+			slot->height = height;
+		}
+		return slot->texture ? slot : nullptr;
+	}
+
+	bool store_frame(const winrt::Windows::Graphics::Capture::Direct3D11CaptureFrame &frame)
+	{
 		const winrt::Windows::Graphics::SizeInt32 frame_content_size = frame.ContentSize();
+		const int64_t submitted = frame_submitted(frame);
 
 		winrt::com_ptr<ID3D11Texture2D> frame_surface =
 			GetDXGIInterfaceFromObject<ID3D11Texture2D>(frame.Surface());
@@ -138,43 +241,38 @@ struct winrt_capture {
 		D3D11_TEXTURE2D_DESC desc;
 		frame_surface->GetDesc(&desc);
 
+		bool more = true;
 		obs_enter_graphics();
 
 		if (desc.Format == get_pixel_format(window, monitor, force_sdr)) {
 			if (!client_area || get_client_box(window, desc.Width, desc.Height, &client_box)) {
-				if (client_area) {
-					texture_width = client_box.right - client_box.left;
-					texture_height = client_box.bottom - client_box.top;
-				} else {
-					texture_width = desc.Width;
-					texture_height = desc.Height;
-				}
+				const uint32_t width = client_area ? client_box.right - client_box.left : desc.Width;
+				const uint32_t height = client_area ? client_box.bottom - client_box.top : desc.Height;
 
-				if (texture) {
-					if (texture_width != gs_texture_get_width(texture) ||
-					    texture_height != gs_texture_get_height(texture)) {
-						gs_texture_destroy(texture);
-						texture = nullptr;
+				wgc_slot *const slot = acquire_slot(width, height, desc.Format);
+				if (slot) {
+					ID3D11Texture2D *const target = (ID3D11Texture2D *)gs_texture_get_obj(slot->texture);
+					if (client_area) {
+						context->CopySubresourceRegion(target, 0, 0, 0, 0, frame_surface.get(), 0,
+									       &client_box);
+					} else {
+						/* if they gave an SRV, we could avoid this copy */
+						context->CopyResource(target, frame_surface.get());
+					}
+					slot->sequence = next_sequence++;
+					slot->submitted = submitted;
+
+					/* Composed before the last selection but delivered after it:
+					 * that selection could not have shown it. */
+					const int64_t since = wgc_qpc_now() - last_select;
+					if (last_select && submitted < last_select && since < ll.output_ticks * 2.5)
+						ll.observe_pending(last_select, submitted);
+
+					if (shown < 0) {
+						texture_width = width;
+						texture_height = height;
 					}
 				}
-
-				if (!texture) {
-					const gs_color_format color_format =
-						desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ? GS_RGBA16F : GS_BGRA;
-					texture = gs_texture_create(texture_width, texture_height, color_format, 1,
-								    NULL, 0);
-				}
-
-				if (client_area) {
-					context->CopySubresourceRegion((ID3D11Texture2D *)gs_texture_get_obj(texture),
-								       0, 0, 0, 0, frame_surface.get(), 0, &client_box);
-				} else {
-					/* if they gave an SRV, we could avoid this copy */
-					context->CopyResource((ID3D11Texture2D *)gs_texture_get_obj(texture),
-							      frame_surface.get());
-				}
-
-				texture_written = true;
 			}
 
 			if (frame_content_size.Width != last_size.Width ||
@@ -182,16 +280,82 @@ struct winrt_capture {
 				format = desc.Format;
 				frame_pool.Recreate(
 					device,
-					static_cast<winrt::Windows::Graphics::DirectX::DirectXPixelFormat>(format), 2,
-					frame_content_size);
+					static_cast<winrt::Windows::Graphics::DirectX::DirectXPixelFormat>(format),
+					WGC_POOL_BUFFERS, frame_content_size);
 
 				last_size = frame_content_size;
+				more = false;
 			}
 		} else {
 			active = FALSE;
+			more = false;
 		}
 
 		obs_leave_graphics();
+		frame.Close();
+		return more;
+	}
+
+	/* Graphics thread, once per video frame (the source may be rendered
+	 * several times per frame). */
+	void select_frame()
+	{
+		const uint64_t frame_time = obs_get_video_frame_time();
+		if (frame_time == last_frame_time)
+			return;
+		last_frame_time = frame_time;
+
+		const int64_t now = wgc_qpc_now();
+		if (last_select && now - last_select > qpc_frequency / 4) {
+			/* The source was not rendered: prime again. */
+			ll = RQLowLatency{};
+			ll.init(qpc_frequency);
+		}
+		last_select = now;
+
+		if (!logged_attach) {
+			blog(LOG_INFO, "[wgc-ready-queue] %s capture attached; %u textures; policy=%s",
+			     window ? "window" : "display", WGC_QUEUE_SLOTS, queue_enabled ? "lowlatency" : "latest");
+			logged_attach = true;
+		}
+
+		unsigned order[WGC_QUEUE_SLOTS];
+		unsigned count = 0;
+		for (unsigned i = 0; i < WGC_QUEUE_SLOTS; ++i) {
+			if ((int)i != shown && slots[i].sequence)
+				order[count++] = i;
+		}
+		std::sort(order, order + count,
+			  [this](unsigned a, unsigned b) { return slots[a].sequence < slots[b].sequence; });
+
+		int chosen = count ? (int)count - 1 : -1;
+		if (queue_enabled) {
+			ll.begin_tick(now);
+			uint64_t seq[WGC_QUEUE_SLOTS];
+			int64_t submitted[WGC_QUEUE_SLOTS];
+			for (unsigned i = 0; i < count; ++i) {
+				seq[i] = slots[order[i]].sequence;
+				submitted[i] = slots[order[i]].submitted;
+			}
+			chosen = ll.select(seq, submitted, count, WGC_QUEUE_SLOTS - 1, now);
+		}
+		if (chosen < 0) {
+			++repeats;
+			return;
+		}
+
+		for (int i = 0; i < chosen; ++i) {
+			slots[order[i]].sequence = 0;
+			++consumer_drops;
+		}
+		if (shown >= 0)
+			slots[shown].sequence = 0;
+		shown = (int)order[chosen];
+		texture = slots[shown].texture;
+		texture_width = slots[shown].width;
+		texture_height = slots[shown].height;
+		texture_written = true;
+		++selections;
 	}
 };
 
@@ -240,6 +404,22 @@ try {
 } catch (...) {
 	blog(LOG_ERROR, "winrt_capture_border_toggle_supported (0x%08X)", winrt::to_hresult().value);
 	return false;
+}
+
+/* Windows 11 24H2 and later deliver at most one frame per MinUpdateInterval.
+ * The default interval drops a frame every few seconds when the display runs
+ * slightly faster than its nominal rate (60.003 Hz against a 60 Hz limit). */
+static void winrt_capture_set_min_update_interval(
+	const winrt::Windows::Graphics::Capture::GraphicsCaptureSession &session, bool queue)
+try {
+	if (queue && winrt::Windows::Foundation::Metadata::ApiInformation::IsPropertyPresent(
+			     L"Windows.Graphics.Capture.GraphicsCaptureSession", L"MinUpdateInterval"))
+		session.MinUpdateInterval(std::chrono::milliseconds(1));
+} catch (const winrt::hresult_error &err) {
+	blog(LOG_WARNING, "GraphicsCaptureSession::MinUpdateInterval (0x%08X): %s", err.code().value,
+	     winrt::to_string(err.message()).c_str());
+} catch (...) {
+	blog(LOG_WARNING, "GraphicsCaptureSession::MinUpdateInterval (0x%08X)", winrt::to_hresult().value);
 }
 
 static winrt::Windows::Graphics::Capture::GraphicsCaptureItem
@@ -309,7 +489,8 @@ static void winrt_capture_device_loss_rebuild(void *device_void, void *data)
 		inspectable.as<winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice>();
 	const winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool frame_pool =
 		winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool::Create(
-			device, static_cast<winrt::Windows::Graphics::DirectX::DirectXPixelFormat>(capture->format), 2,
+			device, static_cast<winrt::Windows::Graphics::DirectX::DirectXPixelFormat>(capture->format),
+			WGC_POOL_BUFFERS,
 			capture->last_size);
 	const winrt::Windows::Graphics::Capture::GraphicsCaptureSession session = frame_pool.CreateCaptureSession(item);
 
@@ -323,6 +504,8 @@ static void winrt_capture_device_loss_rebuild(void *device_void, void *data)
 	if (winrt_capture_cursor_toggle_supported()) {
 		session.IsCursorCaptureEnabled(capture->capture_cursor && capture->cursor_visible);
 	}
+
+	winrt_capture_set_min_update_interval(session, capture->queue_enabled);
 
 	capture->item = item;
 	capture->device = device;
@@ -376,7 +559,8 @@ try {
 	const DXGI_FORMAT format = get_pixel_format(window, monitor, force_sdr);
 	const winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool frame_pool =
 		winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool::Create(
-			device, static_cast<winrt::Windows::Graphics::DirectX::DirectXPixelFormat>(format), 2, size);
+			device, static_cast<winrt::Windows::Graphics::DirectX::DirectXPixelFormat>(format), WGC_POOL_BUFFERS,
+			size);
 	const winrt::Windows::Graphics::Capture::GraphicsCaptureSession session = frame_pool.CreateCaptureSession(item);
 
 	if (winrt_capture_border_toggle_supported()) {
@@ -385,6 +569,9 @@ try {
 			.get();
 		session.IsBorderRequired(false);
 	}
+
+	const bool queue_enabled = wgc_queue_requested();
+	winrt_capture_set_min_update_interval(session, queue_enabled);
 
 	/* disable cursor capture if possible since ours performs better */
 	const BOOL cursor_toggle_supported = winrt_capture_cursor_toggle_supported();
@@ -398,6 +585,11 @@ try {
 	capture->force_sdr = force_sdr;
 	capture->monitor = monitor;
 	capture->format = format;
+	capture->queue_enabled = queue_enabled;
+	LARGE_INTEGER frequency;
+	QueryPerformanceFrequency(&frequency);
+	capture->qpc_frequency = frequency.QuadPart;
+	capture->ll.init(capture->qpc_frequency);
 	capture->capture_cursor = cursor && cursor_toggle_supported;
 	capture->cursor_visible = cursor;
 	capture->item = item;
@@ -460,8 +652,15 @@ extern "C" EXPORT void winrt_capture_free(struct winrt_capture *capture)
 
 		obs_enter_graphics();
 		gs_unregister_loss_callbacks(capture);
-		gs_texture_destroy(capture->texture);
+		for (wgc_slot &slot : capture->slots)
+			gs_texture_destroy(slot.texture);
 		obs_leave_graphics();
+
+		if (capture->logged_attach)
+			blog(LOG_INFO,
+			     "[wgc-ready-queue] stop selections=%llu repeats=%llu producer_drops=%llu consumer_drops=%llu latency_sheds=%llu",
+			     capture->selections, capture->repeats, capture->producer_drops, capture->consumer_drops,
+			     capture->ll.sheds);
 
 		capture->frame_arrived.revoke();
 		capture->closed.revoke();
@@ -527,6 +726,8 @@ extern "C" EXPORT enum gs_color_space winrt_capture_get_color_space(const struct
 
 extern "C" EXPORT void winrt_capture_render(struct winrt_capture *capture)
 {
+	capture->select_frame();
+
 	if (capture->texture_written) {
 		const char *tech_name = "Draw";
 		float multiplier = 1.f;

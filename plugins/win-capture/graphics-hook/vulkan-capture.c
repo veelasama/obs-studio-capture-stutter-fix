@@ -38,6 +38,12 @@ struct vk_obj_list {
 	SRWLOCK mutex;
 };
 
+struct vk_data;
+struct vk_swap_data;
+struct rq_vk_producer;
+static void rq_vk_free(struct vk_data *data, struct vk_swap_data *swap);
+static void rq_vk_frame_complete(struct rq_vk_producer *rq, int slot, bool handoff);
+
 struct vk_swap_data {
 	struct vk_obj_node node;
 
@@ -54,6 +60,7 @@ struct vk_swap_data {
 	struct shtex_data *shtex_info;
 	ID3D11Texture2D *d3d11_tex;
 	bool captured;
+	struct rq_vk_producer *rq;
 };
 
 struct vk_queue_data {
@@ -83,6 +90,9 @@ struct vk_frame_data {
 	VkCommandBuffer cmd_buffer;
 	VkFence fence;
 	bool cmd_buffer_busy;
+	struct rq_vk_producer *rq;
+	int rq_slot;
+	bool rq_handoff;
 };
 
 struct vk_surf_data {
@@ -420,6 +430,12 @@ static void vk_shtex_clear_fence(const struct vk_data *data, struct vk_frame_dat
 		VkDevice device = data->device;
 		const struct vk_device_funcs *funcs = &data->funcs;
 		funcs->WaitForFences(device, 1, &fence, VK_TRUE, ~0ull);
+		if (frame_data->rq) {
+			rq_vk_frame_complete(frame_data->rq, frame_data->rq_slot, frame_data->rq_handoff);
+			frame_data->rq = NULL;
+			frame_data->rq_slot = -1;
+			frame_data->rq_handoff = false;
+		}
 		funcs->ResetFences(device, 1, &fence);
 		frame_data->cmd_buffer_busy = false;
 	}
@@ -457,6 +473,7 @@ static void vk_shtex_free(struct vk_data *data)
 
 	while (swap) {
 		VkDevice device = data->device;
+		rq_vk_free(data, swap);
 		if (swap->export_image)
 			data->funcs.DestroyImage(device, swap->export_image, data->ac);
 
@@ -853,6 +870,8 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data, struct vk_swap
 	return true;
 }
 
+#include "ready_queue_vulkan_producer.h"
+
 static bool vk_shtex_init(struct vk_data *data, HWND window, struct vk_swap_data *swap)
 {
 	if (!vk_shtex_init_d3d11(data)) {
@@ -864,6 +883,9 @@ static bool vk_shtex_init(struct vk_data *data, HWND window, struct vk_swap_data
 	if (!vk_shtex_init_vulkan_tex(data, swap)) {
 		return false;
 	}
+
+	if (!rq_vk_init(data, swap))
+		hlog("[ready-queue-vulkan] unavailable; retaining stock Vulkan capture");
 
 	data->cur_swap = swap;
 
@@ -946,6 +968,10 @@ static void vk_shtex_destroy_frame_objects(struct vk_data *data, struct vk_queue
 		bool *cmd_buffer_busy = &frame_data->cmd_buffer_busy;
 		VkFence *fence = &frame_data->fence;
 		vk_shtex_destroy_fence(data, cmd_buffer_busy, fence);
+		if (frame_data->rq) {
+			rq_vk_frame_complete(frame_data->rq, frame_data->rq_slot, frame_data->rq_handoff);
+			frame_data->rq = NULL;
+		}
 
 		data->funcs.DestroyCommandPool(device, frame_data->cmd_pool, data->ac);
 		frame_data->cmd_pool = VK_NULL_HANDLE;
@@ -992,6 +1018,16 @@ static void vk_shtex_capture(struct vk_data *data, struct vk_device_funcs *funcs
 	queue_data->frame_index = (frame_index + 1) % queue_data->frame_count;
 	vk_shtex_clear_fence(data, frame_data);
 
+	int rq_slot = -1;
+	bool rq_handoff = false;
+	if (swap->rq) {
+		rq_slot = rq_vk_claim(swap->rq, &rq_handoff);
+		if (rq_slot == -2)
+			return;
+	}
+	VkImage target_image = rq_slot >= 0 ? swap->rq->slots[rq_slot].image : swap->export_image;
+	bool *target_layout_initialized = rq_slot >= 0 ? &swap->rq->slots[rq_slot].layout_initialized : &swap->layout_initialized;
+
 	VkDevice device = data->device;
 
 	res = funcs->ResetCommandPool(device, frame_data->cmd_pool, 0);
@@ -1010,7 +1046,7 @@ static void vk_shtex_capture(struct vk_data *data, struct vk_device_funcs *funcs
 	/* ------------------------------------------------------ */
 	/* transition shared texture if necessary                 */
 
-	if (!swap->layout_initialized) {
+	if (!*target_layout_initialized) {
 		VkImageMemoryBarrier imb;
 		imb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 		imb.pNext = NULL;
@@ -1020,7 +1056,7 @@ static void vk_shtex_capture(struct vk_data *data, struct vk_device_funcs *funcs
 		imb.newLayout = VK_IMAGE_LAYOUT_GENERAL;
 		imb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		imb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imb.image = swap->export_image;
+		imb.image = target_image;
 		imb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		imb.subresourceRange.baseMipLevel = 0;
 		imb.subresourceRange.levelCount = 1;
@@ -1030,7 +1066,7 @@ static void vk_shtex_capture(struct vk_data *data, struct vk_device_funcs *funcs
 		funcs->CmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 					  VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &imb);
 
-		swap->layout_initialized = true;
+		*target_layout_initialized = true;
 	}
 
 	/* ------------------------------------------------------ */
@@ -1062,7 +1098,7 @@ static void vk_shtex_capture(struct vk_data *data, struct vk_device_funcs *funcs
 	dst_mb->newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	dst_mb->srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
 	dst_mb->dstQueueFamilyIndex = fam_idx;
-	dst_mb->image = swap->export_image;
+	dst_mb->image = target_image;
 	dst_mb->subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	dst_mb->subresourceRange.baseMipLevel = 0;
 	dst_mb->subresourceRange.levelCount = 1;
@@ -1093,7 +1129,7 @@ static void vk_shtex_capture(struct vk_data *data, struct vk_device_funcs *funcs
 	cpy.extent.width = swap->image_extent.width;
 	cpy.extent.height = swap->image_extent.height;
 	cpy.extent.depth = 1;
-	funcs->CmdCopyImage(cmd_buffer, cur_backbuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swap->export_image,
+	funcs->CmdCopyImage(cmd_buffer, cur_backbuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target_image,
 			    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
 
 	/* ------------------------------------------------------ */
@@ -1140,8 +1176,16 @@ static void vk_shtex_capture(struct vk_data *data, struct vk_device_funcs *funcs
 	debug_res("QueueSubmit", res);
 #endif
 
-	if (res == VK_SUCCESS)
+	if (res == VK_SUCCESS) {
 		frame_data->cmd_buffer_busy = true;
+		if (swap->rq && (rq_slot >= 0 || rq_handoff)) {
+			frame_data->rq = swap->rq;
+			frame_data->rq_slot = rq_slot;
+			frame_data->rq_handoff = rq_handoff;
+		}
+	} else if (swap->rq) {
+		rq_vk_abort(swap->rq, rq_slot);
+	}
 }
 
 static inline bool valid_rect(struct vk_swap_data *swap)
