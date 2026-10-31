@@ -181,6 +181,14 @@ phases cross about every 37 s and three single repeats are unavoidable):
 At the Match Display rate a 180 s Window Capture recording had one repeat, at
 the one frame OBS itself reported as rendering lag.
 
+**OBS 33.0.1 (v1.3.0)**, same test window and settings, 120 s:
+
+| Source | Stock path | v1.3.0 |
+|---|---|---|
+| Game Capture | 29 repeats + 26 skips; a burst of 19 errors | 3 repeats, 0 skips |
+| Window Capture, *Modern (WGC)* | — | 3 repeats, 0 skips |
+| Display Capture, *Legacy (DXGI)* | — | 3 repeats, 0 skips |
+
 Not verified: HDR, Vulkan since v1.0.1, Linux and macOS.
 
 ## Limits
