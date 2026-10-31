@@ -10,4 +10,5 @@ Capture stutter fix for **60 FPS games with V-Sync**, now based on **OBS Studio 
 
 **Updating** — uninstall the previous version first, then install this one. Your settings are kept.
 
-**Unsigned installer** — Windows SmartScreen will show "Unknown publisher". Verify the file with `SHA256SUMS.txt`.
+> [!CAUTION]
+> **Unsigned installer** — Windows SmartScreen will show "Unknown publisher". Verify the file with `SHA256SUMS.txt`.
