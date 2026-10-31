@@ -174,7 +174,7 @@ Measurements: [Technical notes → Validation](CAPTURE_STUTTER_FIX.md#validation
 <details>
 <summary>Previous releases</summary>
 
-- **v1.2.0** has the same fixes on OBS 32.2.2.
+- **[v1.2.0](https://github.com/veelasama/obs-studio-capture-stutter-fix/releases/tag/32.2.2-capture-stutter-fix-v1.2.0)** has the same fixes on OBS 32.2.2 (method names *Windows 10 (1903 and up)*, *DXGI Desktop Duplication*).
 - **v1.1.0** fixed Game Capture and DXGI Display Capture and added Match
   Display. Window Capture and Display Capture in *Modern (WGC)*
   mode were unchanged.
