@@ -46,6 +46,16 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "OBS contributors; GPL-2.0-or-later"
 
 Section "Install" SEC_MAIN
   SetRegView 64
+  ; OBS 33 moved the bundled modules from obs-plugins to core. Remove the
+  ; program folders of an earlier version so no module is loaded twice.
+  ; Settings are stored in %APPDATA% and are not affected.
+  IfFileExists "$INSTDIR\bin\64bit\obs64.exe" 0 fresh_install
+    RMDir /r "$INSTDIR\bin"
+    RMDir /r "$INSTDIR\obs-plugins"
+    RMDir /r "$INSTDIR\data"
+    RMDir /r "$INSTDIR\core"
+  fresh_install:
+
   SetOutPath "$INSTDIR"
   File /r "${STAGE_DIR}\*"
 

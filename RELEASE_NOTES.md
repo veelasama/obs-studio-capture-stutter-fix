@@ -26,6 +26,9 @@ for what this build does and does not fix.
 ## Install
 
 Installs to `C:\Program Files\obs-studio-capture-stutter-fix`, next to the
-official OBS, and over earlier versions; settings are kept. The installer is
-**not code-signed**, so Windows SmartScreen may show an unknown-publisher
+official OBS, and over earlier versions; settings are kept. Because OBS 33
+moved its bundled modules to a new folder, the installer removes the program
+files of the previous version first; third-party plugins that were installed
+into this fork's folder must be reinstalled. The installer is **not
+code-signed**, so Windows SmartScreen may show an unknown-publisher
 warning; verify the file against `SHA256SUMS.txt`.
