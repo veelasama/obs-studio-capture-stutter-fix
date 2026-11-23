@@ -54,8 +54,11 @@ struct d3d9_data {
 
 static struct d3d9_data data = {};
 
+static void rq_d3d9_producer_free();
+
 static void d3d9_free()
 {
+	rq_d3d9_producer_free();
 	capture_free();
 
 	if (data.using_shtex) {
@@ -269,6 +272,8 @@ static inline bool d3d9_shtex_init_copytex()
 	return true;
 }
 
+#include "ready_queue_d3d9_producer.hpp"
+
 static bool d3d9_shtex_init(HWND window)
 {
 	data.using_shtex = true;
@@ -282,6 +287,7 @@ static bool d3d9_shtex_init(HWND window)
 	if (!d3d9_shtex_init_copytex()) {
 		return false;
 	}
+	rq_d3d9_producer_init();
 	if (!capture_init_shtex(&data.shtex_info, window, data.cx, data.cy, data.dxgi_format, false,
 				(uintptr_t)data.handle)) {
 		return false;
@@ -482,7 +488,14 @@ static inline void d3d9_shtex_capture(IDirect3DSurface9 *backbuffer)
 {
 	HRESULT hr;
 
-	hr = data.device->StretchRect(backbuffer, nullptr, data.d3d9_copytex, nullptr, D3DTEXF_NONE);
+	IDirect3DSurface9 *target = rq_d3d9_producer ? rq_d3d9_producer->begin() : data.d3d9_copytex;
+	if (!target)
+		return;
+	hr = data.device->StretchRect(backbuffer, nullptr, target, nullptr, D3DTEXF_NONE);
+	if (rq_d3d9_producer) {
+		if (SUCCEEDED(hr)) rq_d3d9_producer->end();
+		else rq_d3d9_producer->abort();
+	}
 	if (FAILED(hr)) {
 		hlog_hr("d3d9_shtex_capture: StretchRect failed", hr);
 	}

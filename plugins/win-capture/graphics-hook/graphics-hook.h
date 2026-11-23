@@ -167,21 +167,30 @@ static inline bool capture_active(void)
 static inline bool frame_ready(uint64_t interval)
 {
 	static uint64_t last_time = 0;
-	uint64_t elapsed;
+	static uint64_t credit = 0;
 	uint64_t t;
 
 	if (!interval) {
 		return true;
 	}
 
+	/* Token bucket: the long-term capture rate is still limited to one
+	 * frame per interval, but the schedule never snaps to the phase of the
+	 * last accepted frame.  A frame presented early after a late one is
+	 * kept, and a source running at the interval does not alternate
+	 * between accepted and rejected frames on present-time jitter. */
 	t = os_gettime_ns();
-	elapsed = t - last_time;
+	credit += last_time ? t - last_time : interval * 2;
+	last_time = t;
 
-	if (elapsed < interval) {
+	if (credit > interval * 2) {
+		credit = interval * 2;
+	}
+	if (credit < interval) {
 		return false;
 	}
 
-	last_time = (elapsed > interval * 2) ? t : last_time + interval;
+	credit -= interval;
 	return true;
 }
 

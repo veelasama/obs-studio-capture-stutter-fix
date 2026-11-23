@@ -17,6 +17,7 @@
 
 #include "d3d11-subsystem.hpp"
 #include <unordered_map>
+#include "ready_queue_dxgi_duplicator.hpp"
 
 static inline bool get_monitor(gs_device_t *device, int monitor_idx, IDXGIOutput **dxgiOutput)
 {
@@ -36,6 +37,8 @@ static inline bool get_monitor(gs_device_t *device, int monitor_idx, IDXGIOutput
 
 void gs_duplicator::Start()
 {
+	if (rq_dxgi_start(this))
+		return;
 	ComPtr<IDXGIOutput5> output5;
 	ComPtr<IDXGIOutput1> output1;
 	ComPtr<IDXGIOutput> output;
@@ -87,8 +90,15 @@ gs_duplicator::gs_duplicator(gs_device_t *device_, int monitor_idx)
 	Start();
 }
 
+void gs_duplicator::Release()
+{
+	rq_dxgi_release(this);
+	duplicator.Release();
+}
+
 gs_duplicator::~gs_duplicator()
 {
+	rq_dxgi_release(this);
 	delete texture;
 }
 
@@ -193,6 +203,7 @@ void reset_duplicators(void)
 {
 	for (std::pair<const int, gs_duplicator *> &pair : instances) {
 		pair.second->updated = false;
+		rq_dxgi_begin_frame(pair.second);
 	}
 }
 
@@ -260,6 +271,8 @@ EXPORT bool gs_duplicator_update_frame(gs_duplicator_t *d)
 	ComPtr<IDXGIResource> res;
 	HRESULT hr;
 
+	if (d->dxgi_queue)
+		return rq_dxgi_update(d);
 	if (!d->duplicator) {
 		return false;
 	}
