@@ -189,6 +189,15 @@ the one frame OBS itself reported as rendering lag.
 | Window Capture, *Modern (WGC)* | — | 3 repeats, 0 skips |
 | Display Capture, *Legacy (DXGI)* | — | 3 repeats, 0 skips |
 
+**OBS 33.0.3 (v1.3.1)**, same test window and settings, 120 s:
+
+| Source | Stock path | v1.3.1 |
+|---|---|---|
+| Game Capture | 44 repeats + 41 skips; up to 27 errors in one episode | 3 repeats, 0 skips |
+| Window Capture, *Modern (WGC)* | — | 4 repeats, 0 skips |
+| Display Capture, *Modern (WGC)* | — | 4 repeats, 0 skips |
+| Display Capture, *Legacy (DXGI)* | — | 4 repeats, 0 skips |
+
 Not verified: HDR, Vulkan since v1.0.1, Linux and macOS.
 
 ## Limits
